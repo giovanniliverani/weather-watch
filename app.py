@@ -7,7 +7,7 @@ Run with `uv run streamlit run app.py`.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import folium
 import streamlit as st
@@ -57,10 +57,21 @@ features = collection["features"]
 by_id = {f["properties"]["event_id"]: f for f in features}
 meta = collection["meta"]
 
-st.caption(
-    f"{len(features)} events · data as of {meta['data_as_of'] or 'never'} · "
-    f"last collector run {meta['last_collector_run_at'] or 'never'} · missed 3-hour slots in 7 days: {meta['missed_runs_7d']}"
+# ---------------------------------------------------------------- status strip (from `meta` only)
+last_run = meta["last_collector_run_at"]
+hours_since_run = None
+if last_run:
+    hours_since_run = (datetime.now(timezone.utc) - datetime.fromisoformat(last_run.replace("Z", "+00:00"))).total_seconds() / 3600
+ago = "never" if hours_since_run is None else f"{hours_since_run:.1f} h ago"
+strip = (
+    f"Data as of {meta['data_as_of'] or 'never'} · last collector run {ago} · "
+    f"{meta['missed_runs_7d']} of {meta['expected_runs_7d']} runs missed in 7 days · {len(features)} events shown"
 )
+stale = hours_since_run is None or hours_since_run > api.STATUS_RED_STALE_HOURS
+if meta["missed_runs_7d"] > api.STATUS_RED_MISSED_RUNS or stale:
+    st.error(strip)
+else:
+    st.success(strip)
 
 # ---------------------------------------------------------------- map
 m = folium.Map(location=[20, 0], zoom_start=2, tiles="OpenStreetMap", control_scale=True)

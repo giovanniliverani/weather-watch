@@ -18,6 +18,7 @@ Thumbs.db
 
 # Extreme Weather Watch: local data (SQLite, raw snapshots, run logs) and test/export artefacts
 /data/
+/data-branch/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

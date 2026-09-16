@@ -41,6 +41,20 @@ uv run pytest                                              # tests against a tem
 
 Every command is idempotent: run `collect` twice and the second run reports 0 new rows; run `resolve` twice and the second changes nothing.
 
+### Collection while the laptop is off (M1)
+
+[.github/workflows/collect.yml](.github/workflows/collect.yml) runs the same `eww collect` every three hours in GitHub Actions (cron `7 */3 * * *`, UTC) and commits the raw snapshots and the run log to the orphan `data` branch. Nothing needs a secret. The laptop replays what it has not seen:
+
+```bash
+uv run eww sync                                   # git fetch origin data:data, ingest new snapshot and run files, resolve
+uv run eww ingest --from branch                   # only the replay step; --from local replays data/snapshots
+uv run eww collect --all-spine --out some-dir     # exactly what Actions runs: snapshots/ and runs/ under some-dir, no database
+uv run eww report volume                          # fresh clone of the data branch, pack size, yearly extrapolation -> docs/m1-volume.md
+uv run eww task-scheduler                         # prints the schtasks commands that run sync at logon and every 2 hours
+```
+
+Data branch layout: `snapshots/<source>/<YYYY-MM-DDTHH-MM>Z.json` (the raw items exactly as fetched, inside a small envelope) and `runs/<YYYY-MM-DD>.jsonl` (one line per run and source with run_id, source_id, scheduled_for, started_at, finished_at, status, http_status, items_seen, snapshot_path, error). The `heartbeat` SQL view lists every 3-hour slot since the first run and whether an ok run started within 45 minutes of it; the viewer's status strip, the GeoJSON `meta` and `eww doctor` read it, and the strip turns red above 2 missed runs in 7 days or when the last successful run is more than 6 hours old.
+
 | Path | What it is |
 |---|---|
 | `eww/cli.py` | the `eww` command (typer) |
@@ -50,10 +64,11 @@ Every command is idempotent: run `collect` twice and the second run reports 0 ne
 | `eww/ingest.py` | snapshot files -> `source_record` and `collector_run`, idempotent on the natural key plus payload hash |
 | `eww/resolve.py` | `source_record` -> `event`; `create_event()` is the only insert into `event` |
 | `eww/api.py` | `events_geojson(...)`, the interface the viewer and any future frontend read |
-| `eww/heartbeat.py`, `eww/report.py` | collector_run heartbeat; the density report |
+| `eww/heartbeat.py`, `eww/gitdata.py`, `eww/report.py` | collector_run heartbeat and the `heartbeat` view; reading the data branch with git plumbing; the density and volume reports |
 | `app.py` | the Streamlit + folium viewer; imports only `eww.api` |
 | `eww/data/countries.csv` | ISO3 -> continent, from GeoNames countryInfo.txt |
 | `data/` (gitignored) | `eww.sqlite`, `snapshots/`, `runs/` |
+| `.github/workflows/collect.yml`, the `data` branch | the scheduled collector and its raw archive |
 
 Data and attribution: Global Disaster Alert and Coordination System (GDACS), European Union, CC BY 4.0; NASA Earth Observatory Natural Event Tracker (EONET), public domain; country data from GeoNames, CC BY 4.0; map tiles from OpenStreetMap contributors, ODbL.
 

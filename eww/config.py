@@ -40,6 +40,16 @@ DEFAULT_EXPORT_SINCE = "30d"
 DEFAULT_VIEWER_DAYS = 14
 SNAPSHOT_FORMAT = "eww.snapshot/1"  # the envelope written by collectors and replayed by ingest
 
+# --------------------------------------------------------------------------- spine, data branch, heartbeat
+SPINE_SOURCES = ["gdacs", "eonet"]  # `eww collect --all-spine`; copernicus joins in M2
+DATA_BRANCH = "data"  # orphan branch holding snapshots/ and runs/, written by .github/workflows/collect.yml
+GIT_REMOTE = "origin"
+HEARTBEAT_GRACE_MINUTES = 45  # a run serves its 3-hour slot only if it started within this many minutes
+STATUS_RED_MISSED_RUNS = 2  # the viewer's status strip turns red above this many missed runs in 7 days
+STATUS_RED_STALE_HOURS = 6.0  # ...or when the last successful collector run is older than this
+VOLUME_PACK_LIMIT_MB = 15  # M1 exit criterion 5: size-pack of a fresh data-branch clone after 3 days
+VOLUME_DAILY_LIMIT_MB = 5  # docs/architecture.md §1: above this per day, the sink moves to Cloudflare R2
+
 # --------------------------------------------------------------------------- hazards
 # Must match the CHECK constraint on event.hazard_type in sql/schema.sql.
 HAZARD_TYPES = [

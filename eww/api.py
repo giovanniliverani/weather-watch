@@ -50,7 +50,10 @@ EVENT_PROPERTIES = (
 )
 FOOTPRINT_PROPERTIES = ("event_id", "role", "observed_at", "source_id")
 FOOTPRINT_ROLES = ("footprint", "track", "impact_area")
-META_KEYS = ("data_as_of", "last_collector_run_at", "missed_runs_7d", "generated_at", "filters_applied")
+META_KEYS = ("data_as_of", "last_collector_run_at", "missed_runs_7d", "expected_runs_7d", "generated_at", "filters_applied")
+# Thresholds for the viewer's status strip (the viewer imports only this module).
+STATUS_RED_MISSED_RUNS = config.STATUS_RED_MISSED_RUNS
+STATUS_RED_STALE_HOURS = config.STATUS_RED_STALE_HOURS
 
 # The SQL definition of "an event observed in the window"; `eww doctor` prints the same count so
 # the exporter can be checked against it (exit criterion 3 in docs/architecture.md §4).
@@ -276,6 +279,7 @@ def _meta(conn, now, since_iso, until_iso, hazards, min_severity, statuses, bbox
         "data_as_of": data_as_of,
         "last_collector_run_at": beat["last_collector_run_at"],
         "missed_runs_7d": beat["missed_runs_7d"],
+        "expected_runs_7d": beat["expected_runs_7d"],
         "generated_at": to_iso(now),
         "filters_applied": {
             "since": since_iso,

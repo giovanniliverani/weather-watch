@@ -214,3 +214,92 @@ def write_density_report(conn: sqlite3.Connection, days: int = 30, out: Path | N
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_markdown(result), encoding="utf-8")
     return path, result
+
+
+# ============================================================================= M1: data branch volume
+def measure_volume(remote_url: str, branch: str = "data", now: datetime | None = None) -> dict:
+    """Clone `branch` fresh into a temporary directory and measure it with `git count-objects -v`."""
+    import tempfile
+
+    from eww import gitdata
+
+    now = now or now_utc()
+    tmp = Path(tempfile.mkdtemp(prefix="eww-volume-"))
+    clone = tmp / "clone"
+    try:
+        gitdata.clone_branch(remote_url, branch, clone)
+        objects = gitdata.count_objects(clone)
+        first_snapshot_at = gitdata.first_commit_at(clone, branch, "snapshots")
+        first_commit_at = gitdata.first_commit_at(clone, branch)
+        snapshot_files = [p for p in gitdata.list_files(branch, ("snapshots",), clone)]
+        commits = gitdata.commit_count(clone, branch)
+    finally:
+        gitdata.rmtree(tmp)
+    size_pack = objects.get("size-pack", 0)
+    size_loose = objects.get("size", 0)
+    start = first_snapshot_at or first_commit_at
+    days = max((now - datetime.fromisoformat(start)).total_seconds() / 86400, 0.0) if start else 0.0
+    per_day = (size_pack / 1e6) / days if days >= 0.5 else None
+    limit_mb = config.VOLUME_PACK_LIMIT_MB
+    if per_day is None:
+        verdict = "PROVISIONAL (less than half a day of snapshots)"
+    elif days < 3:
+        verdict = f"PROVISIONAL (only {days:.1f} of the 3 days the exit criterion needs); on track" if size_pack / 1e6 * (3 / days) < limit_mb else f"PROVISIONAL; extrapolates above {limit_mb} MB at 3 days"
+    else:
+        verdict = "PASS" if size_pack / 1e6 < limit_mb else "FAIL"
+    return {
+        "generated_at": to_iso(now),
+        "remote": remote_url,
+        "branch": branch,
+        "commits": commits,
+        "snapshot_files": len(snapshot_files),
+        "first_snapshot_at": first_snapshot_at,
+        "first_commit_at": first_commit_at,
+        "days": days,
+        "size_pack_bytes": size_pack,
+        "size_pack_mb": size_pack / 1e6,
+        "size_loose_mb": size_loose / 1e6,
+        "per_day_mb": round(per_day, 2) if per_day is not None else None,
+        "per_year_mb": round(per_day * 365, 0) if per_day is not None else None,
+        "limit_mb": limit_mb,
+        "daily_limit_mb": config.VOLUME_DAILY_LIMIT_MB,
+        "verdict": verdict,
+    }
+
+
+def render_volume_markdown(result: dict) -> str:
+    per_day = "n/a" if result["per_day_mb"] is None else f"{result['per_day_mb']:.2f} MB"
+    per_year = "n/a" if result["per_year_mb"] is None else f"{result['per_year_mb']:.0f} MB"
+    lines = [
+        "# M1 data-branch volume",
+        "",
+        f"Generated {result['generated_at']} by `eww report volume`: a fresh `git clone --branch {result['branch']} --single-branch` "
+        f"of `{result['remote']}` measured with `git count-objects -vH`.",
+        "",
+        f"**Verdict: {result['verdict']}** (exit criterion 5: size-pack below {result['limit_mb']} MB after 3 days of collection).",
+        "",
+        "| Measure | Value |",
+        "|---|---:|",
+        f"| Commits on the branch | {result['commits']} |",
+        f"| Snapshot files | {result['snapshot_files']} |",
+        f"| First snapshot committed | {result['first_snapshot_at'] or 'none yet'} |",
+        f"| Days of snapshots measured | {result['days']:.2f} |",
+        f"| size-pack (fresh clone) | {result['size_pack_mb']:.2f} MB |",
+        f"| loose objects | {result['size_loose_mb']:.2f} MB |",
+        f"| Growth per day | {per_day} |",
+        f"| Extrapolated per year | {per_year} |",
+        "",
+        f"Decision rule (docs/architecture.md §1): above {result['daily_limit_mb']} MB per day packed, the collector sink moves from the "
+        "`data` branch to a Cloudflare R2 bucket. Re-run `uv run eww report volume` after three days of scheduled runs to replace "
+        "a provisional verdict.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def write_volume_report(remote_url: str, branch: str = "data", out: Path | None = None, now: datetime | None = None) -> tuple[Path, dict]:
+    result = measure_volume(remote_url, branch, now)
+    path = out or (config.DOCS_DIR / "m1-volume.md")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_volume_markdown(result), encoding="utf-8")
+    return path, result

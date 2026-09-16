@@ -1,4 +1,4 @@
-"""The `eww` command line: init-db, collect, ingest, resolve, export, doctor, report density.
+"""The `eww` command line: init-db, collect, ingest, sync, resolve, export, doctor, report, task-scheduler.
 
 Every command is idempotent and safe to re-run. Logs are structured key=value lines on stderr
 so that `eww export > events.geojson` stays clean JSON on stdout.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import sys
 import time
 from datetime import timedelta
@@ -16,9 +17,9 @@ from typing import Optional
 
 import typer
 
-from eww import api, config, db, heartbeat, ingest, report, resolve, snapshots
-from eww.clock import now_utc, parse_when, to_iso
-from eww.collect import collect_source
+from eww import api, collectors, config, db, gitdata, heartbeat, ingest, report, resolve, snapshots
+from eww.clock import now_utc, parse_iso, parse_when, to_iso
+from eww.collect import collect_source, summary_line
 
 app = typer.Typer(
     help="Extreme Weather Watch: collect, resolve and export hazard events.",
@@ -55,9 +56,14 @@ def _open():
     return conn
 
 
+def _count(conn, table: str) -> int:
+    return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+
+# ----------------------------------------------------------------------------- schema
 @app.command("init-db")
 def init_db_cmd() -> None:
-    """Apply sql/schema.sql when schema_version is empty and seed the source table."""
+    """Apply sql/schema.sql when schema_version is empty, run pending migrations, seed the source table."""
     conn = db.connect(_state["db"])
     applied = db.init_db(conn)
     typer.echo(f"database={_state['db'] or config.DB_PATH} schema_version={db.schema_version(conn)} applied_now={applied}")
@@ -65,56 +71,128 @@ def init_db_cmd() -> None:
         typer.echo(f"source {row['source_id']}: {row['display_name']} | {row['attribution']}")
 
 
+# ----------------------------------------------------------------------------- collect
 @app.command()
 def collect(
-    source: list[str] = typer.Option(["gdacs", "eonet"], "--source", "-s", help="Source id; repeat for several."),
+    source: Optional[list[str]] = typer.Option(None, "--source", "-s", help="Source id; repeat for several. Default: every spine source."),
+    all_spine: bool = typer.Option(False, "--all-spine", help=f"Every spine source: {', '.join(config.SPINE_SOURCES)}."),
     days: int = typer.Option(config.DEFAULT_COLLECT_DAYS, "--days", help="Window length ending at --until."),
     until: Optional[str] = typer.Option(None, "--until", help="ISO 8601 end of the window (default: now)."),
+    out: Optional[Path] = typer.Option(None, "--out", help="Write snapshots/ and runs/ under this directory and touch no database (what GitHub Actions runs)."),
+    do_ingest: Optional[bool] = typer.Option(None, "--ingest/--no-ingest", help="Ingest the new snapshots into the database. Default: yes without --out, no with --out."),
 ) -> None:
-    """Fetch each source, write its snapshot and run log, then ingest into source_record."""
-    conn = _open()
+    """Fetch each source and write its snapshot and run log; locally, also ingest into source_record.
+
+    Exit code 1 only when every source failed.
+    """
+    sources = list(config.SPINE_SOURCES) if all_spine or not source else list(source)
+    unknown = [s for s in sources if s not in collectors.COLLECTORS]
+    if unknown:
+        typer.echo(f"unknown source(s): {', '.join(unknown)}; known: {', '.join(sorted(collectors.COLLECTORS))}", err=True)
+        raise typer.Exit(code=2)
+    ingest_now = (out is None) if do_ingest is None else do_ingest
+    data_dir = out if out is not None else config.DATA_DIR
+    conn = _open() if ingest_now else None
     now = now_utc()
     until_dt = parse_when(until, now) or now
     since_dt = until_dt - timedelta(days=days)
+    results = []
     total_new = total_changed = 0
-    failed = 0
-    for source_id in source:
-        result = collect_source(conn, source_id, since_dt, until_dt)
+    for source_id in sources:
+        result = collect_source(conn, source_id, since_dt, until_dt, data_dir=data_dir, ingest_into_db=ingest_now)
+        results.append(result)
         run = result.run
-        if result.ingest is None:
-            failed += 1
-            typer.echo(f"{source_id}: status={run['status']} error={run['error']}")
+        if result.failed:
+            typer.echo(f"{source_id}: status=failed error={run['error']}")
             continue
-        stats = result.ingest
-        total_new += stats.new
-        total_changed += stats.changed
-        typer.echo(
-            f"{source_id}: status={run['status']} items={stats.items_seen} records={stats.records} "
-            f"new={stats.new} changed={stats.changed} unchanged={stats.unchanged} errors={len(stats.errors)} "
-            f"snapshot={run['snapshot_path']}"
-        )
-    typer.echo(f"new source_record rows: {total_new} (changed: {total_changed}); events: {_count(conn, 'event')}")
-    if failed:
+        line = f"{source_id}: status={run['status']} items={run['items_seen']} snapshot={run['snapshot_path']}"
+        if result.ingest is not None:
+            stats = result.ingest
+            total_new += stats.new
+            total_changed += stats.changed
+            line += f" records={stats.records} new={stats.new} changed={stats.changed} unchanged={stats.unchanged} errors={len(stats.errors)}"
+        typer.echo(line)
+    if conn is not None:
+        typer.echo(f"new source_record rows: {total_new} (changed: {total_changed}); events: {_count(conn, 'event')}")
+    typer.echo(summary_line(results))
+    if results and all(r.failed for r in results):
         raise typer.Exit(code=1)
+
+
+# ----------------------------------------------------------------------------- ingest and sync
+def _echo_ingest_results(results: list[ingest.IngestStats], label: str) -> None:
+    processed = [r for r in results if not r.skipped]
+    snaps = [r for r in processed if r.kind == "snapshot"]
+    runs = [r for r in processed if r.kind == "runs"]
+    typer.echo(
+        f"{label}: new snapshot files={len(snaps)} (records new={sum(r.new for r in snaps)} changed={sum(r.changed for r in snaps)} "
+        f"unchanged={sum(r.unchanged for r in snaps)}) runs files read={len(runs)} (runs inserted={sum(r.new for r in runs)}) "
+        f"skipped={sum(1 for r in results if r.skipped)} errors={sum(len(r.errors) for r in results)}"
+    )
 
 
 @app.command("ingest")
 def ingest_cmd(
-    path: Optional[Path] = typer.Option(None, "--path", help="One snapshot file to (re)ingest; default: every pending file."),
-    force: bool = typer.Option(False, "--force", help="Re-ingest even if snapshot_ingest already lists the file."),
+    source: str = typer.Option("all", "--from", help="Where to read snapshots from: local | branch | all."),
+    path: Optional[Path] = typer.Option(None, "--path", help="One local snapshot file to (re)ingest."),
+    force: bool = typer.Option(False, "--force", help="Re-ingest even if snapshot_ingest already lists the file(s)."),
+    fetch: bool = typer.Option(True, "--fetch/--no-fetch", help="git fetch the data branch first."),
+    branch: str = typer.Option(config.DATA_BRANCH, "--branch"),
+    repo: Optional[Path] = typer.Option(None, "--repo", help="Git repository holding the data branch (default: this project)."),
 ) -> None:
-    """Replay snapshot files under data/snapshots that have not been ingested yet."""
+    """Replay snapshots and run logs the database has not seen: local data/snapshots, the data branch, or both."""
+    if source not in ("local", "branch", "all"):
+        typer.echo("--from must be local, branch or all", err=True)
+        raise typer.Exit(code=2)
     conn = _open()
+    new_files = 0
     if path is not None:
-        results = [ingest.ingest_snapshot(conn, path, force=force)]
-    else:
+        stats = ingest.ingest_snapshot(conn, path, force=force)
+        _echo_ingest_results([stats], f"file {stats.snapshot_path}")
+        new_files += 0 if stats.skipped else 1
+    if source in ("local", "all"):
         results = ingest.ingest_pending(conn)
-    for stats in results:
-        state = "skipped" if stats.skipped else f"records={stats.records} new={stats.new} changed={stats.changed} unchanged={stats.unchanged}"
-        typer.echo(f"{stats.snapshot_path}: {state}")
-    typer.echo(f"snapshots processed: {len(results)}; new source_record rows: {sum(s.new for s in results)}")
+        _echo_ingest_results(results, "local")
+        new_files += sum(1 for r in results if not r.skipped)
+    if source in ("branch", "all"):
+        outcome = ingest.ingest_branch(conn, branch=branch, repo=repo, fetch=fetch, force=force)
+        if not outcome.found:
+            typer.echo(f"branch {branch}: {outcome.error}")
+        else:
+            fetched = {True: "fetched", False: "fetch failed, using the local copy", None: "not fetched"}[outcome.fetched]
+            typer.echo(f"branch {branch} ({fetched}) head={(outcome.head or '')[:12]} files listed={outcome.files_listed}")
+            _echo_ingest_results(outcome.results, f"branch {branch}")
+            new_files += sum(1 for r in outcome.results if not r.skipped and r.kind == "snapshot")
+    typer.echo(f"new snapshot files: {new_files}")
 
 
+@app.command()
+def sync(
+    fetch: bool = typer.Option(True, "--fetch/--no-fetch", help="git fetch the data branch first."),
+    refresh_days: int = typer.Option(30, "--refresh-days", help="Also refresh events seen in the last N days."),
+    branch: str = typer.Option(config.DATA_BRANCH, "--branch"),
+    repo: Optional[Path] = typer.Option(None, "--repo"),
+) -> None:
+    """git fetch + ingest (data branch and local files) + resolve, then one summary line."""
+    started = time.monotonic()
+    conn = _open()
+    branch_result = ingest.ingest_branch(conn, branch=branch, repo=repo, fetch=fetch)
+    local = ingest.ingest_pending(conn)
+    stats = resolve.resolve(conn, refresh_days=refresh_days or None)
+    beat = heartbeat.summary(conn)
+    fetched = {True: "ok", False: "failed", None: "skipped"}[branch_result.fetched]
+    snapshots_new = branch_result.snapshots_new + sum(1 for r in local if not r.skipped)
+    records_new = branch_result.records_new + sum(r.new for r in local)
+    records_changed = branch_result.records_changed + sum(r.changed for r in local)
+    typer.echo(
+        f"sync: fetch={fetched} branch_head={(branch_result.head or 'none')[:12]} snapshots_new={snapshots_new} "
+        f"records_new={records_new} records_changed={records_changed} runs_loaded={branch_result.runs_inserted} "
+        f"events_created={stats.events_created} events_changed={stats.events_changed} unresolved={resolve.unresolved_count(conn)} "
+        f"missed_runs_7d={beat['missed_runs_7d']}/{beat['expected_runs_7d']} took={time.monotonic() - started:.1f}s"
+    )
+
+
+# ----------------------------------------------------------------------------- resolve and export
 @app.command("resolve")
 def resolve_cmd(
     refresh_days: int = typer.Option(30, "--refresh-days", help="Also refresh events seen in the last N days (0 = only touched events)."),
@@ -154,6 +232,7 @@ def export(
     log.info("export features=%d since=%s until=%s", len(collection["features"]), collection["meta"]["filters_applied"]["since"], collection["meta"]["filters_applied"]["until"])
 
 
+# ----------------------------------------------------------------------------- doctor
 @app.command()
 def doctor(days: int = typer.Option(30, "--days", help="Window for the 'events observed' count.")) -> None:
     """Print the invariant queries: duplicates, unresolved records, event counts, last runs, heartbeat."""
@@ -178,8 +257,15 @@ def doctor(days: int = typer.Option(30, "--days", help="Window for the 'events o
     typer.echo(f"events without a centroid: {conn.execute('SELECT COUNT(*) FROM event WHERE centroid_lat IS NULL').fetchone()[0]}")
     footprints = conn.execute("SELECT COUNT(*) FROM event_geometry WHERE role = 'footprint'").fetchone()[0]
     typer.echo(f"event_geometry rows: {_count(conn, 'event_geometry')} (footprints: {footprints})")
-    typer.echo(f"snapshots ingested: {_count(conn, 'snapshot_ingest')}; pending on disk: {len(snapshots.pending(conn))}")
-    typer.echo("last run per source:")
+    typer.echo(f"files ingested (snapshot_ingest): {_count(conn, 'snapshot_ingest')}; local snapshots pending: {len(snapshots.pending(conn))}")
+    head = gitdata.head_commit()
+    if head:
+        listed = gitdata.list_files()
+        known = {row[0] for row in conn.execute("SELECT snapshot_path FROM snapshot_ingest")}
+        typer.echo(f"data branch {config.DATA_BRANCH}: head={head[:12]} files={len(listed)} not yet ingested={sum(1 for p in listed if p not in known)}")
+    else:
+        typer.echo(f"data branch {config.DATA_BRANCH}: not present locally (run `eww sync` or `git fetch origin {config.DATA_BRANCH}:{config.DATA_BRANCH}`)")
+    typer.echo(f"collector runs: {_count(conn, 'collector_run')}; last run per source:")
     for row in heartbeat.last_runs(conn):
         typer.echo(
             f"  {row['source_id']}: {row['started_at']} status={row['status']} http={row['http_status']} "
@@ -187,11 +273,16 @@ def doctor(days: int = typer.Option(30, "--days", help="Window for the 'events o
         )
     beat = heartbeat.summary(conn, now)
     typer.echo(
-        f"heartbeat: last_collector_run_at={beat['last_collector_run_at']} "
-        f"slots_expected_7d={beat['expected_runs_7d']} slots_served={beat['observed_runs_7d']} missed_runs_7d={beat['missed_runs_7d']}"
+        f"heartbeat: last successful run={beat['last_collector_run_at']} last run any status={beat['last_run_any_status_at']} "
+        f"slots expected 7d={beat['expected_runs_7d']} served={beat['observed_runs_7d']} missed_runs_7d={beat['missed_runs_7d']} "
+        f"(a slot is served by an ok run starting within {config.HEARTBEAT_GRACE_MINUTES} minutes of it)"
     )
+    missed = heartbeat.missed_slots(conn, now)
+    if missed:
+        typer.echo("  most recent missed slots: " + ", ".join(missed))
 
 
+# ----------------------------------------------------------------------------- reports
 @report_app.command("density")
 def report_density(
     days: int = typer.Option(30, "--days"),
@@ -206,8 +297,42 @@ def report_density(
     typer.echo(f"verdict: {'PASS' if result['passed'] else 'FAIL'} (events counted: {result['events_counted']}, after removing cross-source mirrors: {result['events_deduplicated']})")
 
 
-def _count(conn, table: str) -> int:
-    return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+@report_app.command("volume")
+def report_volume(
+    remote: Optional[str] = typer.Option(None, "--remote", help="Repository URL or path to clone (default: the origin URL)."),
+    branch: str = typer.Option(config.DATA_BRANCH, "--branch"),
+    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m1-volume.md"),
+) -> None:
+    """Clone the data branch fresh, measure `git count-objects -vH`, extrapolate a year, write docs/m1-volume.md."""
+    url = remote or gitdata.remote_url()
+    if not url:
+        typer.echo("no remote URL; pass --remote", err=True)
+        raise typer.Exit(code=2)
+    path, result = report.write_volume_report(url, branch, out)
+    typer.echo(f"written {path}")
+    typer.echo(
+        f"size-pack={result['size_pack_mb']:.2f} MB over {result['days']:.1f} days of snapshots "
+        f"({result['snapshot_files']} files, {result['commits']} commits); per day={result['per_day_mb']} MB; "
+        f"per year={result['per_year_mb']} MB; verdict={result['verdict']}"
+    )
+
+
+# ----------------------------------------------------------------------------- scheduling hints
+@app.command("task-scheduler")
+def task_scheduler() -> None:
+    """Print (do not register) the Windows Task Scheduler commands that run `eww sync` at logon and every 2 hours."""
+    uv = shutil.which("uv") or "uv"
+    repo = config.PROJECT_ROOT
+    log_path = config.DATA_DIR / "sync.log"
+    action = f'cmd /c ""{uv}" run --directory "{repo}" eww sync >> "{log_path}" 2>&1"'
+    typer.echo("Run these in PowerShell (single quotes are PowerShell syntax; they only create the tasks, nothing runs until logon or the next 2-hour tick):")
+    typer.echo("")
+    typer.echo(f'schtasks /Create /F /TN "EWW sync at logon" /SC ONLOGON /DELAY 0002:00 /TR \'{action}\'')
+    typer.echo(f'schtasks /Create /F /TN "EWW sync every 2 hours" /SC HOURLY /MO 2 /TR \'{action}\'')
+    typer.echo("")
+    typer.echo('Check with: schtasks /Query /TN "EWW sync every 2 hours" /V /FO LIST')
+    typer.echo('Remove with: schtasks /Delete /F /TN "EWW sync at logon"  and  schtasks /Delete /F /TN "EWW sync every 2 hours"')
+    typer.echo(f"The log lands in {log_path}; the tasks run as your user, so uv, git and the repo are the ones you use interactively.")
 
 
 if __name__ == "__main__":
