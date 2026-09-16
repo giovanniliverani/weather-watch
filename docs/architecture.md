@@ -1,6 +1,6 @@
 # Extreme Weather Watch: architecture and sequencing
 
-*Written 2026-09-16, last updated 2026-09-16 after M0, against the README and constraints in `docs/planning-prompt.md`. Facts about third-party services were checked against their official pages on those dates; anything marked **verify** is either unconfirmed or likely to change.*
+*Written 2026-09-16, last updated 2026-09-16 after M0 and the M1 build, against the README and constraints in `docs/planning-prompt.md`. Facts about third-party services were checked against their official pages on those dates; anything marked **verify** is either unconfirmed or likely to change.*
 
 ## 0. Summary
 
@@ -227,7 +227,9 @@ events_geojson(since, until=None, hazard=None, min_severity=0.0, status=None,
                bbox=None, include_footprints=False, limit=2000) -> FeatureCollection
 
 FeatureCollection.meta   (a top-level "meta" member; RFC 7946 allows foreign members)
-  data_as_of, last_collector_run_at, missed_runs_7d, generated_at, filters_applied
+  data_as_of, last_collector_run_at, missed_runs_7d, expected_runs_7d, generated_at, filters_applied
+  (last_collector_run_at is the last run that produced data; expected_runs_7d was added in M1 so the
+   viewer can say "n of m runs missed")
 
 Feature, one per event; geometry = Point at the primary centroid
   properties:
@@ -256,7 +258,7 @@ count always equals the SQL count of events observed in the window (added after 
 
 ## 3. Data model
 
-SQLite DDL. The only SQLite-specific constructs are `STRICT`, `fts5` and the two `PRAGMA` lines; everything else is plain SQL and moves to Postgres by dropping `STRICT`, mapping `TEXT` timestamps to `timestamptz`, `BLOB` to `vector(384)` and the JSON `TEXT` columns to `jsonb`. All timestamps are ISO 8601 UTC strings. All surrogate keys are ULIDs (sortable, generated in Python, no coordination). Columns and tables that exist only for the future are marked **FUTURE**; they are created now so that contributions land in existing tables rather than in a migration.
+SQLite DDL. Schema version 1 is everything up to the FUTURE tables; version 2 (M1) adds the `heartbeat` view at the end, applied to existing databases by `sql/migrations/0002_heartbeat_view.sql`. The only SQLite-specific constructs are `STRICT`, `fts5`, `strftime`/`printf` in the view and the two `PRAGMA` lines; everything else is plain SQL and moves to Postgres by dropping `STRICT`, mapping `TEXT` timestamps to `timestamptz`, `BLOB` to `vector(384)` and the JSON `TEXT` columns to `jsonb`. All timestamps are ISO 8601 UTC strings. All surrogate keys are ULIDs (sortable, generated in Python, no coordination). Columns and tables that exist only for the future are marked **FUTURE**; they are created now so that contributions land in existing tables rather than in a migration.
 
 ```sql
 PRAGMA journal_mode = WAL;
@@ -530,6 +532,37 @@ CREATE TABLE event_revision (       -- field-level edit history; the pipeline ma
   contribution_id TEXT REFERENCES contribution(contribution_id),
   UNIQUE (event_id, revision, field)
 ) STRICT;
+
+-- ============================================================ heartbeat (schema version 2)
+-- Every 3-hour slot from the first collector run to now, and whether an 'ok' run started inside the
+-- slot's 45-minute grace window (docs/architecture.md §4, M1). Plain SQL apart from strftime/printf.
+CREATE VIEW heartbeat AS
+WITH RECURSIVE
+  bounds AS (
+    SELECT substr(MIN(started_at), 1, 11)
+             || printf('%02d', (CAST(substr(MIN(started_at), 12, 2) AS INTEGER) / 3) * 3) || ':00:00Z' AS first_slot,
+           strftime('%Y-%m-%dT', 'now')
+             || printf('%02d', (CAST(strftime('%H', 'now') AS INTEGER) / 3) * 3) || ':00:00Z' AS last_slot
+    FROM collector_run
+  ),
+  slots(scheduled_for) AS (
+    SELECT first_slot FROM bounds WHERE first_slot IS NOT NULL
+    UNION ALL
+    SELECT strftime('%Y-%m-%dT%H:%M:%SZ', scheduled_for, '+3 hours') FROM slots
+    WHERE scheduled_for < (SELECT last_slot FROM bounds)
+  )
+SELECT s.scheduled_for,
+       strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes') AS deadline,
+       (SELECT COUNT(*) FROM collector_run r
+         WHERE r.status = 'ok' AND r.started_at >= s.scheduled_for
+           AND r.started_at < strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes')) AS ok_runs,
+       (SELECT COUNT(DISTINCT r.source_id) FROM collector_run r
+         WHERE r.status = 'ok' AND r.started_at >= s.scheduled_for
+           AND r.started_at < strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes')) AS sources_ok,
+       EXISTS (SELECT 1 FROM collector_run r
+         WHERE r.status = 'ok' AND r.started_at >= s.scheduled_for
+           AND r.started_at < strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes')) AS served
+FROM slots s;
 ```
 
 **Where event identity is enforced — exactly these seven places**
@@ -643,6 +676,10 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 **Risk retired.** The riskiest assumption, and "an interactive map with zero JavaScript".
 
 ### M1 — Collection survives the laptop being off (medium)
+
+**Status (2026-09-16): built, first run observed, exit criteria awaiting the calendar.** The orphan `data` branch exists (README.md only at `a0c330d`); `.github/workflows/collect.yml` runs `eww collect --all-spine --out data-branch` on `7 */3 * * *` and on dispatch, with the default GITHUB_TOKEN and `contents: write`. The first dispatched run took 31 s: gdacs=2,192 and eonet=1,051 items, committed as `28e7df3` by `eww-collector[bot]` on the first push attempt. `eww sync` on the laptop then fetched the branch and replayed it: 2 snapshot files, 11 new and 39 changed `source_record` rows, 2 run-log lines, 2 events created; a second `eww ingest --from branch` reported 0 new snapshot files (exit criterion 3 met). The `heartbeat` view marks the 15:00Z slot as served by both sources and the 12:00Z slot as missed, because M0's manual runs started 92 minutes into it: the 45-minute rule is deliberately strict. Exit criteria 1, 2, 4 and 5 need three days of scheduled runs, which start at 2026-09-16T18:07Z; `docs/m1-volume.md` is provisional at 0.91 MB of pack for the first two snapshot files. If git's delta compression does not pair consecutive snapshots, eight runs a day approach 7 MB/day and criterion 5 fails, in which case the pre-declared fallback (Cloudflare R2 as the sink) applies.
+
+**What M1 fixed in the design.** In Actions the data branch is checked out sparse (cone `runs/`) and new files are added with `git add --sparse`, so the checkout stays small while snapshots accumulate; a run commits nothing when only `runs/` changed, so a run in which every fetch failed leaves no commit and shows up only as a missed slot. `last_collector_run_at` in the GeoJSON `meta` is the last run that produced data (status ok or partial), and `expected_runs_7d` joined the contract so the strip can say "n of m runs missed". Runs replayed from `runs/*.jsonl` never overwrite a row the collector recorded itself (INSERT OR IGNORE); the same snapshot minute stamp produced by a laptop run and an Actions run would collide on `snapshot_path` and the second would be skipped, which loses nothing because both hold the same feed window.
 
 **Goal.** The spine accumulates history on a schedule that does not depend on you, and the map says when the pipeline was not running.
 
@@ -1277,7 +1314,10 @@ Only things that need your input or an external check.
    - Anthropic prices and the Batch discount: the figures come from a table cached 2026-06-24.
    - Streamlit Community Cloud's one-private-app allowance and resource limits (stated as approximate, dated February 2024).
    - The euro-dollar rate used in §1b.
+   - M1 exit criteria 1, 2, 4 and 5 after three days of scheduled runs (from 2026-09-16T18:07Z): `runs/*.jsonl` lines with `status: ok`, `first_seen_at` inside a laptop-off window, the strip's missed count against a hand count from the Actions page, and `uv run eww report volume` replacing the provisional `docs/m1-volume.md`.
+   - The workflow pins `actions/checkout@v5` and `astral-sh/setup-uv@v10.1.0` (setup-uv publishes no moving `v10` tag); bump them when GitHub deprecates their Node runtime.
 
 ## Revision log
 
 - **2026-09-16 — M0 done, density bar passed.** 3,228 events observed in 30 days (1,643 after excluding GDACS wildfires below Orange, 703 after also removing EONET mirrors of GDACS events), 5 hazard types and 6 continents with 3 or more events, 50 non-wildfire events in Europe, so the anchored-feeds bet holds. Marked M0 done with its measured numbers and the collector facts it uncovered (per-type GDACS paging, mandatory `alertlevel`, EONET [lat, lon] polygons), added `limit=0` to the GeoJSON contract, gave M2 the EONET→GDACS eventid join and closed its Meteoalarm conditional, verified the GDACS parameter casing and volcano presence in §7, added the EONET axis-order check and the User-Agent default. Sections touched: 0, 2, 4, 6 (Prompt M2 STATE), 7.
+- **2026-09-16 — M1 built and its first run observed.** Orphan `data` branch pushed, `collect.yml` dispatched once (31 s, gdacs=2,192, eonet=1,051, commit `28e7df3`), `eww sync` replayed it on the laptop (2 files, 11 new records), second ingest 0 new files. Added `expected_runs_7d` to the §2 contract and the `heartbeat` view (schema version 2) to the §3 DDL, recorded the M1 status and design fixes in §4, added the three-day follow-ups and the action pins to §7. Sections touched: 2, 3, 4, 7.
