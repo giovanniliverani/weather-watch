@@ -15,3 +15,11 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+
+# Extreme Weather Watch: local data (SQLite, raw snapshots, run logs) and test/export artefacts
+/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.pytest_cache/
+/events.geojson

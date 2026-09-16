@@ -1,0 +1,124 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns0="http://www.w3.org/2005/Atom" xmlns:ns1="http://www.gdacs.org" xmlns:ns3="http://www.w3.org/2003/01/geo/wgs84_pos#" xmlns:ns4="http://www.georss.org/georss" version="2.0">
+  <channel>
+    <title>GDACS RSS information</title>
+    <link>https://www.gdacs.org/</link>
+    <copyright>public domain</copyright>
+    <description>Near real-time notification about natural disaster with a potential humanitarian impact</description>
+    <managingEditor>stefano.paris@ext.ec.europa.eu</managingEditor>
+    
+    
+    
+    <webMaster>stefano.paris@ext.ec.europa.eu</webMaster>
+    <pubDate>Wed, 16 Sep 2026 13:05:01 GMT</pubDate>
+    <ns0:link href="https://www.gdacs.org/xml/rss.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Green forest fire notification in Australia</title>
+      <description>On 16/09/2026, a forest fire started in Australia,  until 16/09/2026.</description>
+      <enclosure type="image/png" length="1" url="" />
+      <ns1:temporary>false</ns1:temporary>
+      <link>https://www.gdacs.org/report.aspx?eventtype=WF&amp;eventid=1032032</link>
+      <pubDate>Wed, 16 Sep 2026 11:00:25 GMT</pubDate>
+      <ns1:dateadded>Wed, 16 Sep 2026 11:00:25 GMT</ns1:dateadded>
+      <ns1:datemodified>Wed, 16 Sep 2026 11:00:25 GMT</ns1:datemodified>
+      <ns1:iscurrent>true</ns1:iscurrent>
+      <ns1:fromdate>Wed, 16 Sep 2026 00:00:00 GMT</ns1:fromdate>
+      <ns1:todate>Wed, 16 Sep 2026 00:00:00 GMT</ns1:todate>
+      <ns1:durationinweek>0</ns1:durationinweek>
+      <ns1:year>2026</ns1:year>
+      <dc:subject>WF1</dc:subject>
+      <guid isPermaLink="false">WF1032032</guid>
+      <ns3:Point>
+        <ns3:lat>-18.659463577186177</ns3:lat>
+        <ns3:long>145.78141708992061</ns3:long>
+      </ns3:Point>
+      
+      <ns1:bbox>141.781417089921 149.781417089921 -22.6594635771862 -14.6594635771862</ns1:bbox>
+      <ns4:point>-18.659463577186177 145.78141708992061</ns4:point>
+      <ns1:cap>https://www.gdacs.org/contentdata/resources/WF/1032032/cap_1032032.xml</ns1:cap>
+      <ns1:icon>https://www.gdacs.org/Images/gdacs_icons/alerts/Green/WF.png</ns1:icon>
+      <ns1:version>0</ns1:version>
+      <ns1:eventtype>WF</ns1:eventtype>
+      <ns1:alertlevel>Green</ns1:alertlevel>
+      <ns1:alertscore>1</ns1:alertscore>
+      <ns1:episodealertlevel>Green</ns1:episodealertlevel>
+      <ns1:episodealertscore>1</ns1:episodealertscore>
+      <ns1:eventname />
+      <ns1:eventid>1032032</ns1:eventid>
+      <ns1:episodeid>1</ns1:episodeid>
+      <ns1:calculationtype />
+      <ns1:severity unit="ha" value="5596">Green impact for forestfire in 5596 ha</ns1:severity>
+      <ns1:population unit="" value="0">0 people affected in the area</ns1:population>
+      <ns1:vulnerability value="0" />
+      <ns1:iso3>AUS</ns1:iso3>
+      <ns1:country>Australia</ns1:country>
+      <ns1:glide />
+      <ns1:mapimage />
+      <ns1:maplink />
+      <ns1:gtsimage />
+      <ns1:gtslink />
+      <ns1:resources>
+        <ns1:resource id="event_rss" version="0" source="EC-JRC" url="https://www.gdacs.org//datareport/resources/WF/1032032/rss_1032032.xml" type="rss">
+          <ns1:title>Event in rss format</ns1:title>
+          <ns1:description>Joint Research Center of the European Commission</ns1:description>
+          <ns1:acknowledgements>Copyright notice: European Union (CC BY 4.0), reuse is allowed, provided appropriate credit to GDACS is given.</ns1:acknowledgements>
+          <ns1:accesslevel>Public</ns1:accesslevel>
+        </ns1:resource>
+      </ns1:resources>
+    </item>
+    <item>
+      <title>Green flood alert in Senegal</title>
+      <description>On 15/09/2026, a flood started in Senegal, lasting until 16/09/2026 (last update). The flood caused 0 deaths and 0 displaced .</description>
+      <enclosure type="image/png" length="1" url="https://www.gdacs.org/contentdata/resources/imgtemp/gdacs/fl/dfo2026_1104161.png" />
+      <ns1:temporary>false</ns1:temporary>
+      <link>https://www.gdacs.org/report.aspx?eventtype=FL&amp;eventid=1104161</link>
+      <pubDate>Wed, 16 Sep 2026 08:04:47 GMT</pubDate>
+      <ns1:dateadded>Wed, 16 Sep 2026 08:04:47 GMT</ns1:dateadded>
+      <ns1:datemodified>Wed, 16 Sep 2026 08:04:47 GMT</ns1:datemodified>
+      <ns1:iscurrent>true</ns1:iscurrent>
+      <ns1:fromdate>Tue, 15 Sep 2026 01:00:00 GMT</ns1:fromdate>
+      <ns1:todate>Wed, 16 Sep 2026 01:00:00 GMT</ns1:todate>
+      <ns1:durationinweek>0</ns1:durationinweek>
+      <ns1:year>2026</ns1:year>
+      <dc:subject>FL1</dc:subject>
+      <guid isPermaLink="false">FL1104161</guid>
+      <ns3:Point>
+        <ns3:lat>14.7603583</ns3:lat>
+        <ns3:long>-17.468149</ns3:long>
+      </ns3:Point>
+      
+      <ns1:bbox>-21.468149 -13.468149 10.7603583 18.7603583</ns1:bbox>
+      <ns4:point>14.7603583 -17.468149</ns4:point>
+      <ns1:cap>https://www.gdacs.org/contentdata/resources/FL/1104161/cap_1104161.xml</ns1:cap>
+      <ns1:icon>https://www.gdacs.org/Images/gdacs_icons/alerts/Green/FL.png</ns1:icon>
+      <ns1:version>1</ns1:version>
+      <ns1:eventtype>FL</ns1:eventtype>
+      <ns1:alertlevel>Green</ns1:alertlevel>
+      <ns1:alertscore>1</ns1:alertscore>
+      <ns1:episodealertlevel>Green</ns1:episodealertlevel>
+      <ns1:episodealertscore>1</ns1:episodealertscore>
+      <ns1:eventname />
+      <ns1:eventid>1104161</ns1:eventid>
+      <ns1:episodeid>1</ns1:episodeid>
+      <ns1:calculationtype />
+      <ns1:severity unit="" value="0">Magnitude 0 </ns1:severity>
+      <ns1:population unit="Population Affected" value="0">0 deaths </ns1:population>
+      <ns1:vulnerability value="0" />
+      <ns1:iso3>SEN</ns1:iso3>
+      <ns1:country>Senegal</ns1:country>
+      <ns1:glide />
+      <ns1:mapimage />
+      <ns1:maplink />
+      <ns1:gtsimage />
+      <ns1:gtslink />
+      <ns1:resources>
+        <ns1:resource id="event_rss" version="0" source="EC-JRC" url="https://www.gdacs.org//datareport/resources/FL/1104161/rss_1104161.xml" type="rss">
+          <ns1:title>Event in rss format</ns1:title>
+          <ns1:description>Joint Research Center of the European Commission</ns1:description>
+          <ns1:acknowledgements>Copyright notice: European Union (CC BY 4.0), reuse is allowed, provided appropriate credit to GDACS is given.</ns1:acknowledgements>
+          <ns1:accesslevel>Public</ns1:accesslevel>
+        </ns1:resource>
+      </ns1:resources>
+    </item>
+    </channel>
+</rss>

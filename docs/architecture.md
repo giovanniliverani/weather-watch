@@ -1,12 +1,12 @@
 # Extreme Weather Watch: architecture and sequencing
 
-*Written 2026-09-16 against the README and constraints in `docs/planning-prompt.md`. Facts about third-party services were checked against their official pages on that date; anything marked **verify** is either unconfirmed or likely to change.*
+*Written 2026-09-16, last updated 2026-09-16 after M0, against the README and constraints in `docs/planning-prompt.md`. Facts about third-party services were checked against their official pages on those dates; anything marked **verify** is either unconfirmed or likely to change.*
 
 ## 0. Summary
 
-**What you are building first.** A pin map of hazard events on your laptop, drawn by Streamlit and Leaflet from GeoJSON and fed by free authoritative feeds (GDACS, NASA EONET) that already carry ids, coordinates and severity. A GitHub Actions cron collects every three hours and commits raw snapshots to a repo branch, so history accumulates while the laptop is off. When the laptop is on, one Python command replays snapshots into SQLite, attaches free news and social links to known events, geocodes with a local gazetteer and summarises with a local model. Recurring cost: €0; a cloud model sits behind a hard cap of about €9 a month.
+**What you are building first.** A pin map of hazard events on your laptop, drawn by Streamlit and Leaflet from GeoJSON and fed by free authoritative feeds (GDACS, NASA EONET) carrying ids, coordinates and severity. A GitHub Actions cron collects every three hours and commits raw snapshots to a repo branch, so history accumulates while the laptop is off. When the laptop is on, one Python command replays snapshots into SQLite, attaches free news and social links, geocodes with a local gazetteer and summarises with a local model. Recurring cost: €0; a cloud model sits behind a hard cap of about €9 a month.
 
-**The most consequential thing you are probably getting wrong.** The README makes news and social media the *source* of events and treats clustering them as the core problem. That ordering is the expensive, unreliable one. Structured feeds should be the source of event identity; news and posts should be *attached* to events already known. That turns open-ended clustering into bounded assignment, removes most model spend and all terms-of-service exposure. The price is coverage below humanitarian-alert thresholds; M0 measures whether that price is acceptable before anything else is built.
+**The most consequential thing you are probably getting wrong.** The README makes news and social media the *source* of events and treats clustering them as the core problem. That ordering is expensive and unreliable. Structured feeds should be the source of event identity; news and posts should be *attached* to events already known. That turns open-ended clustering into bounded assignment, removes most model spend and all terms-of-service exposure. The price is coverage below humanitarian-alert thresholds. M0 measured it on 2026-09-16: 703 distinct events in 30 days, 5 hazard types, 6 continents; the bet holds.
 
 ## 1. Decisions
 
@@ -242,6 +242,8 @@ Feature, only when include_footprints=True; geometry = Polygon or LineString
 
 Filters: since/until accept ISO 8601 or relative ("14d"); hazard is a list of hazard_type values;
 bbox is [min_lon, min_lat, max_lon, max_lat]; every filter is applied inside this function.
+limit=0 returns every event in the window; the CLI exporter and the viewer pass it, so their pin
+count always equals the SQL count of events observed in the window (added after M0).
 ```
 
 **What you must not do, so the viewer swap stays cheap**
@@ -619,7 +621,11 @@ attach_document(doc):
 
 Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medium, M6 small. Every milestone ends with something you can look at, query or click.
 
-### M0 — Real events on a local map (small)
+### M0 — Real events on a local map (small) — DONE 2026-09-16
+
+**Result.** Built and run the same day; `docs/m0-density.md` holds the counts. Exit criteria: (1) two consecutive collects fetched 2,192 GDACS and 1,051 EONET items into 3,633 `source_record` rows and 3,243 events; the second collect added 0 rows and left the event count at 3,243. (2) The duplicate query returns no rows; 0 unresolved records after `eww resolve`, and a second `eww resolve` changes nothing. (3) `eww export --since 30d` wrote 3,228 features, equal to the SQL count for the same window; a 12-feature sample carrying the `meta` member loaded in geojson.io without error. (4) The viewer drew 1,396 pins for its default 14-day window; clicking one showed title, hazard, start date, severity label, country and the source link in the sidebar. (5) Density bar, all four criteria met: 3,228 events observed in 30 days; 1,643 after excluding the 1,585 GDACS wildfires below Orange; 703 after also removing the 940 EONET items that mirror a GDACS event (M0 has no cross-source merging). Hazard types with 3 or more events: 5 (wildfire 1,000, earthquake 484, flood 111, tropical cyclone 33, drought 13). Continents with 3 or more: 6. Non-wildfire events in Europe: 50 (38 without the mirrors). The bar also passes on the de-duplicated set, so the anchored-feeds bet holds and Meteoalarm stays out of M2.
+
+**What M0 taught the collectors.** GDACS: `alertlevel` is mandatory (HTTP 204 without it), a page past the end is a 204, and a combined `eventlist` collapsed to 4 rows when one listed type (TS) had no rows in the window, so the collector queries one type per request (about 30 requests for a 30-day window); the swagger file confirmed the parameter names. EONET: `start`/`end` returned the same 1,051 events as `days=30`; Polygon rings arrive as [lat, lon] and are swapped on ingest (39 of 40 GDACS-sourced flood polygons landed on GDACS's own point only after the swap); EONET carries no country, so `country_iso3` is read from GDACS-style titles ("Flood in Croatia 1104153") or implied by US-only fire sources (IRWIN, InciWeb), leaving 121 counted events without a continent. 940 of the 1,051 EONET items cite a GDACS report URL carrying the GDACS eventid: a deterministic cross-source key for M2, like Copernicus's `gdacsId`. `events_geojson(limit=0)` returns everything in the window; the exporter and the viewer use it, and the contract's default of 2,000 is unchanged.
 
 **Goal.** Prove that the spine is thick enough and that a clickable map needs no JavaScript.
 
@@ -657,7 +663,7 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 
 **Goal.** Cross-source identity with reversible merges, normalised severity, and the filters the README asks for.
 
-**In scope.** Copernicus EMS activations collector (spine, runs in Actions) joined on `gdacsId`; the full `resolve_record()` from §3 with blocking, scoring, auto-merge at 0.90 and `merge_proposal` rows for 0.60–0.90; `event_lineage` with revert; a Review tab (accept, reject, revert); severity normalisation; footprints (EONET polygons, GDACS bbox) drawn with `folium.GeoJson`; filters: hazard types (multiselect), time window (1–90 days), minimum severity; MarkerCluster; LocateControl; `include_footprints` in the API; the hand-labelled pairs file. If M0 said Europe is thin: a Meteoalarm ATOM collector as a separate, toggleable warnings layer.
+**In scope.** Copernicus EMS activations collector (spine, runs in Actions) joined on `gdacsId`, and EONET records joined on the GDACS eventid in their `sources[].url` (940 of 1,051 EONET items carried one on 2026-09-16), both before any scoring; the full `resolve_record()` from §3 with blocking, scoring, auto-merge at 0.90 and `merge_proposal` rows for 0.60–0.90; `event_lineage` with revert; a Review tab (accept, reject, revert); severity normalisation; footprints (EONET polygons, GDACS bbox) drawn with `folium.GeoJson`; filters: hazard types (multiselect), time window (1–90 days), minimum severity; MarkerCluster; LocateControl; `include_footprints` in the API; the hand-labelled pairs file. M0 found Europe thick enough (50 non-wildfire events in 30 days), so no Meteoalarm layer.
 
 **Out.** News, geocoding of prose, models.
 
@@ -925,7 +931,7 @@ Extreme Weather Watch (EWW): private, single-user hazard-event map on my Windows
 with uv, SQLite (WAL, STRICT), Streamlit + folium. I know Python and SQL only; no JavaScript or CSS. Free
 tiers only; official APIs only; no media bytes; idempotent; UTC ISO 8601; ULIDs; identifying User-Agent;
 settings in eww/config.py; pytest. Read docs/architecture.md §3, especially "How identity is decided".
-STATE: M0 and M1 are done. GDACS and EONET are collected every 3 h by GitHub Actions into the `data`
+STATE: M0 and M1 are done. M0's density check passed for the world and for Europe (50 non-wildfire European events), so task 8 below does not apply. GDACS and EONET are collected every 3 h by GitHub Actions into the `data`
 branch; `eww sync` ingests and resolves; each external id is its own event; the map shows pins.
 PROBLEM: the same cyclone or flood can arrive from two feeds and must become one pin, and every merge
 must be reversible. A wrong merge (a disaster disappears) is worse than a wrong split (two pins).
@@ -1258,10 +1264,11 @@ Only things that need your input or an external check.
 2. **Laptop uptime.** How many hours a day is the laptop typically on? The local-model default assumes at least one to two hours of `eww sync` time on most days. Under an hour, the cloud fallback should become the default (still capped).
 3. **Repository visibility.** Private keeps the 2,000 Actions minutes and keeps the `data` branch private; public gives unlimited minutes but publishes the branch and brings the 60-day inactivity rule. The plan assumes private.
 4. **Accounts you are willing to create.** All free, all yours to create and to hold the credentials for: a Bluesky app password, a Google Cloud project for the YouTube key, a GeoNames username, a ReliefWeb appname request (the API returns 403 without an approved one since November 2025), a Reddit approval request (outcome uncertain), and for M6 a Cloudflare account. The plan degrades gracefully if any is missing.
-5. **A contact address for User-Agent strings.** Nominatim, the OSM tile policy, Wikimedia and NWS all require an identifying User-Agent, and several ask for a contact. Decide which address to publish in it.
+5. **A contact address for User-Agent strings.** Nominatim, the OSM tile policy, Wikimedia and NWS all require an identifying User-Agent, and several ask for a contact. Decide which address to publish in it. Until you do, the code sends the repository URL (`EWW_CONTACT` in `.env`, default `https://github.com/giovanniliverani/weather-watch`).
 6. **Where the SQLite file is backed up.** It is rebuildable from the data branch plus a re-run of enrichment, but a nightly copy to your existing backup location saves hours. Your resource, your call.
 7. **Facts to verify before relying on them** (from memory or likely to change; everything else in the document was read from the official page on 2026-09-16):
-   - GDACS: exact parameter casing of the SEARCH endpoint and whether volcano (`VO`) events appear in the JSON API; none were in today's feed.
+   - GDACS: verified 2026-09-16 against the swagger file: `eventlist`, `alertlevel`, `fromDate`, `toDate`, `pageSize`, `pageNumber`; volcano (`VO`) events do appear in the JSON API (2 in the 30-day window); `TS` returned none, and including it in a combined `eventlist` collapsed the result to 4 rows, hence one request per type.
+   - EONET: the [lat, lon] order of Polygon rings is observed (2026-09-16), not documented. If EONET fixes it, flood footprints and centroids shift until `EONET_POLYGON_AXES_SWAPPED` in `eww/config.py` is turned off; re-check whenever an EONET flood pin sits far from its GDACS twin.
    - ReliefWeb: appname approval turnaround, and whether its "no derivative works" clause matters if you ever publish summaries built from its reports.
    - GDELT: the DOC API's search lookback (assumed about three months) and the informal one-request-per-5-seconds limit.
    - Bluesky: numeric rate limits for authenticated `searchPosts` on `bsky.social` (only the general 3,000 per 5 minutes per IP is published).
@@ -1271,3 +1278,6 @@ Only things that need your input or an external check.
    - Streamlit Community Cloud's one-private-app allowance and resource limits (stated as approximate, dated February 2024).
    - The euro-dollar rate used in §1b.
 
+## Revision log
+
+- **2026-09-16 — M0 done, density bar passed.** 3,228 events observed in 30 days (1,643 after excluding GDACS wildfires below Orange, 703 after also removing EONET mirrors of GDACS events), 5 hazard types and 6 continents with 3 or more events, 50 non-wildfire events in Europe, so the anchored-feeds bet holds. Marked M0 done with its measured numbers and the collector facts it uncovered (per-type GDACS paging, mandatory `alertlevel`, EONET [lat, lon] polygons), added `limit=0` to the GeoJSON contract, gave M2 the EONET→GDACS eventid join and closed its Meteoalarm conditional, verified the GDACS parameter casing and volcano presence in §7, added the EONET axis-order check and the User-Agent default. Sections touched: 0, 2, 4, 6 (Prompt M2 STATE), 7.

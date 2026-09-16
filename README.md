@@ -21,6 +21,42 @@ We realise this is too far ahead, so the first step would be to have a platform 
 
 Slides: [https://docs.google.com/presentation/d/1ue2GXbwYTAzx-kkgJ25d_5NGQZNjg_IyWjjkkUGcYhA/edit#slide=id.g2759e7532a8_0_374](https://docs.google.com/presentation/d/1ue2GXbwYTAzx-kkgJ25d_5NGQZNjg_IyWjjkkUGcYhA/edit#slide=id.g2759e7532a8_0_374)
 
+## Running it (M0: real events on a local map)
+
+The first milestone is built: GDACS and NASA EONET events from the last 30 days, in SQLite, on a folium map inside Streamlit. Python and SQL only. The plan, schema and GeoJSON contract are in [docs/architecture.md](docs/architecture.md); the M0 density verdict is in [docs/m0-density.md](docs/m0-density.md).
+
+Requirements: [uv](https://docs.astral.sh/uv/) and Python 3.12 (uv installs it). Optional: copy `.env.example` to `.env` and set `EWW_CONTACT` (it goes into the HTTP User-Agent).
+
+```bash
+uv sync --all-groups                                       # create .venv, install everything
+uv run eww init-db                                         # apply sql/schema.sql, seed the source table
+uv run eww collect --source gdacs --source eonet --days 30 # fetch, write data/snapshots/, ingest source_record
+uv run eww resolve                                         # source_record -> event (+ event_geometry)
+uv run eww doctor                                          # invariants: duplicates, unresolved, counts, heartbeat
+uv run eww export --since 30d > events.geojson             # the GeoJSON contract (eww/api.py)
+uv run eww report density --days 30                        # writes docs/m0-density.md
+uv run streamlit run app.py                                # the map, at http://localhost:8501
+uv run pytest                                              # tests against a temporary SQLite file
+```
+
+Every command is idempotent: run `collect` twice and the second run reports 0 new rows; run `resolve` twice and the second changes nothing.
+
+| Path | What it is |
+|---|---|
+| `eww/cli.py` | the `eww` command (typer) |
+| `eww/config.py` | every setting: paths, User-Agent, feed URLs, hazard mappings, severity scores, the density bar |
+| `eww/db.py`, `sql/schema.sql` | SQLite connection (WAL, foreign keys) and the DDL, copied verbatim from the architecture document |
+| `eww/collectors/gdacs.py`, `eww/collectors/eonet.py` | `fetch(since, until)` and `normalise(item)` per source; raw items go to `data/snapshots/<source>/<YYYY-MM-DDTHH-MM>Z.json` |
+| `eww/ingest.py` | snapshot files -> `source_record` and `collector_run`, idempotent on the natural key plus payload hash |
+| `eww/resolve.py` | `source_record` -> `event`; `create_event()` is the only insert into `event` |
+| `eww/api.py` | `events_geojson(...)`, the interface the viewer and any future frontend read |
+| `eww/heartbeat.py`, `eww/report.py` | collector_run heartbeat; the density report |
+| `app.py` | the Streamlit + folium viewer; imports only `eww.api` |
+| `eww/data/countries.csv` | ISO3 -> continent, from GeoNames countryInfo.txt |
+| `data/` (gitignored) | `eww.sqlite`, `snapshots/`, `runs/` |
+
+Data and attribution: Global Disaster Alert and Coordination System (GDACS), European Union, CC BY 4.0; NASA Earth Observatory Natural Event Tracker (EONET), public domain; country data from GeoNames, CC BY 4.0; map tiles from OpenStreetMap contributors, ODbL.
+
 ## Proof of Concept
 
 Steps/points:

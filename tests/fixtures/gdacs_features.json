@@ -1,0 +1,180 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "bbox": [
+    106.8742,
+    -4.9832,
+    106.8742,
+    -4.9832
+   ],
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     106.8742,
+     -4.9832
+    ]
+   },
+   "properties": {
+    "eventtype": "EQ",
+    "eventid": 1564809,
+    "episodeid": 1732664,
+    "eventname": "",
+    "glide": "",
+    "name": "Earthquake in Indonesia",
+    "description": "Earthquake in Indonesia",
+    "htmldescription": "Green M 6.5 Earthquake in Indonesia at: 11 Sep 2026 21:23:55.",
+    "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Green/EQ.png",
+    "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Green/EQ.png",
+    "url": {
+     "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=EQ&eventid=1564809&episodeid=1732664",
+     "report": "https://www.gdacs.org/report.aspx?eventid=1564809&episodeid=1732664&eventtype=EQ",
+     "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=EQ&eventid=1564809"
+    },
+    "alertlevel": "Green",
+    "alertscore": 1,
+    "episodealertlevel": "Green",
+    "episodealertscore": 0.0,
+    "istemporary": "false",
+    "iscurrent": "false",
+    "country": "Indonesia",
+    "fromdate": "2026-09-11T21:23:55",
+    "todate": "2026-09-11T21:23:55",
+    "datemodified": "2026-09-12T13:04:10",
+    "iso3": "IDN",
+    "source": "NEIC",
+    "sourceid": "",
+    "polygonlabel": "Centroid",
+    "Class": "Point_Centroid",
+    "affectedcountries": [
+     {
+      "iso2": "ID",
+      "iso3": "IDN",
+      "countryname": "Indonesia"
+     }
+    ],
+    "severitydata": {
+     "severity": 6.5,
+     "severitytext": "Magnitude 6.5M, Depth:372km",
+     "severityunit": "M"
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "bbox": [
+    -143.1,
+    20.5,
+    -143.1,
+    20.5
+   ],
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -143.1,
+     20.5
+    ]
+   },
+   "properties": {
+    "eventtype": "TC",
+    "eventid": 1001320,
+    "episodeid": 24,
+    "eventname": "NORBERT-26",
+    "glide": "",
+    "name": "Tropical Cyclone NORBERT-26",
+    "description": "Tropical Cyclone NORBERT-26",
+    "htmldescription": "Green Tropical Cyclone NORBERT-26 off-shore from: 09 Sep 2026  to: 15 Sep 2026 .",
+    "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Green/TC.png",
+    "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Green/TC.png",
+    "url": {
+     "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=TC&eventid=1001320&episodeid=24",
+     "report": "https://www.gdacs.org/report.aspx?eventid=1001320&episodeid=24&eventtype=TC",
+     "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=TC&eventid=1001320"
+    },
+    "alertlevel": "Green",
+    "alertscore": 1,
+    "episodealertlevel": "Green",
+    "episodealertscore": 1.0,
+    "istemporary": "false",
+    "iscurrent": "true",
+    "country": "",
+    "fromdate": "2026-09-09T21:00:00",
+    "todate": "2026-09-15T15:00:00",
+    "datemodified": "2026-09-16T09:20:50",
+    "iso3": "",
+    "source": "NOAA",
+    "sourceid": "",
+    "polygonlabel": "Centroid",
+    "Class": "Point_Centroid",
+    "countryonland": "",
+    "affectedcountries": [],
+    "severitydata": {
+     "severity": 101.8512,
+     "severitytext": "Tropical Depression (maximum wind speed of 102 km/h)",
+     "severityunit": "km/h"
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "bbox": [
+    126.9799,
+    47.232,
+    126.9799,
+    47.232
+   ],
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     126.9799,
+     47.232
+    ]
+   },
+   "properties": {
+    "eventtype": "FL",
+    "eventid": 1104081,
+    "episodeid": 18,
+    "eventname": "",
+    "glide": "FL-2026-000148-CHN",
+    "name": "Flood in China",
+    "description": "Flood in China",
+    "htmldescription": "Orange Flood in China from: 31 Jul 2026 01 to: 13 Sep 2026 01.",
+    "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Orange/FL.png",
+    "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Orange/FL.png",
+    "url": {
+     "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=FL&eventid=1104081&episodeid=18",
+     "report": "https://www.gdacs.org/report.aspx?eventid=1104081&episodeid=18&eventtype=FL",
+     "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=FL&eventid=1104081"
+    },
+    "alertlevel": "Orange",
+    "alertscore": 2,
+    "episodealertlevel": "Orange",
+    "episodealertscore": 1.5,
+    "istemporary": "false",
+    "iscurrent": "true",
+    "country": "China",
+    "fromdate": "2026-07-31T01:00:00",
+    "todate": "2026-09-13T01:00:00",
+    "datemodified": "2026-09-15T06:03:33",
+    "iso3": "CHN",
+    "source": "GLOFAS",
+    "sourceid": "",
+    "polygonlabel": "Centroid",
+    "Class": "Point_Centroid",
+    "affectedcountries": [
+     {
+      "iso2": "CN",
+      "iso3": "CHN",
+      "countryname": "China"
+     }
+    ],
+    "severitydata": {
+     "severity": 0.0,
+     "severitytext": "Magnitude 0 ",
+     "severityunit": ""
+    }
+   }
+  }
+ ]
+}
