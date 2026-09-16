@@ -129,14 +129,15 @@ def last_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 def summary(conn: sqlite3.Connection, now: datetime | None = None, days: int = 7) -> dict:
     """Slots expected and served in the last `days` days, from the `heartbeat` view.
 
-    A slot counts only once its 45-minute deadline has passed. `last_collector_run_at` is the last
-    run that produced data (status ok or partial); a run that failed does not refresh it.
+    A served slot counts as soon as its ok run exists; an unserved slot counts only once its
+    45-minute deadline has passed, so a run in progress is not yet a miss. `last_collector_run_at`
+    is the last run that produced data (status ok or partial); a failed run does not refresh it.
     """
     now = now or now_utc()
     now_iso = to_iso(now)
     window_start = to_iso(now - timedelta(days=days))
     row = conn.execute(
-        "SELECT COUNT(*), COALESCE(SUM(served), 0) FROM heartbeat WHERE deadline <= ? AND scheduled_for >= ?",
+        "SELECT COUNT(*), COALESCE(SUM(served), 0) FROM heartbeat WHERE (deadline <= ? OR served = 1) AND scheduled_for >= ?",
         (now_iso, window_start),
     ).fetchone()
     expected, observed = int(row[0]), int(row[1])

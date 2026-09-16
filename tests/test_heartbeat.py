@@ -57,6 +57,13 @@ def test_view_marks_late_and_failed_slots_as_missed(conn):
     missed = heartbeat.missed_slots(conn, now, limit=3)
     assert len(missed) == 3 and to_iso(first_slot) not in missed
 
+    # a slot served inside the current, still-open grace window counts straight away
+    current_slot = parse_iso(slot_for(now, 3))
+    if now - current_slot < timedelta(minutes=40):
+        add_run(conn, "r4", "gdacs", to_iso(current_slot + timedelta(minutes=1)))
+        fresh = heartbeat.summary(conn, now)
+        assert fresh["observed_runs_7d"] == 2 and fresh["expected_runs_7d"] == summary["expected_runs_7d"] + 1
+
 
 def test_summary_on_an_empty_database(conn):
     summary = heartbeat.summary(conn)
