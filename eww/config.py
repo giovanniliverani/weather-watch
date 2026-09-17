@@ -11,6 +11,7 @@ import os
 import re
 from pathlib import Path
 
+import yaml
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -219,29 +220,106 @@ STORM_TITLE_RE = EONET_STORM_TITLE_RE
 RESOLVE_SOURCE_ORDER = ["gdacs", "eonet", "copernicus"]
 # Cross-source blocking happens inside a hazard class; the two storm types share one, 'other' never blocks.
 HAZARD_CLASS = {h: h for h in HAZARD_TYPES if h != "other"} | {"tropical_cyclone": "storm", "severe_storm": "storm"}
-# Blocking radius R (km) and window T (days) per hazard type of the incoming record.
-BLOCKING = {
-    "tropical_cyclone": (500.0, 10.0),
-    "flood": (250.0, 5.0),
-    "wildfire": (100.0, 7.0),
-    "severe_storm": (200.0, 3.0),
-    "drought": (500.0, 30.0),
-    "heatwave": (500.0, 10.0),
-    "coldwave": (500.0, 10.0),
-    "landslide": (50.0, 3.0),
-    "volcano": (50.0, 30.0),
-    "earthquake": (150.0, 2.0),
-    "tsunami": (500.0, 2.0),
-}
+# The tunable numbers (aggregation radius, blocking radii and windows, thresholds, score weights) live in
+# identity.yaml at the repository root (EWW_IDENTITY_FILE overrides the path) and are loaded and
+# validated here, so the rest of the package keeps reading config.*. Edit the file, then rebuild the
+# database from the snapshots to apply the change to existing events (README, "One event, one pin").
+IDENTITY_FILE = Path(os.getenv("EWW_IDENTITY_FILE", str(PROJECT_ROOT / "identity.yaml")))
+
+
+class IdentityConfigError(ValueError):
+    """identity.yaml is missing, malformed or names something the pipeline does not know."""
+
+
+def load_identity(path: Path | None = None) -> dict:
+    """Read and validate identity.yaml. Returns plain floats and tuples; fails loudly on a typo."""
+    path = Path(path) if path is not None else IDENTITY_FILE
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError as exc:
+        raise IdentityConfigError(f"{path} not found; it holds the aggregation radius, blocking radii and thresholds") from exc
+    except yaml.YAMLError as exc:
+        raise IdentityConfigError(f"{path} is not valid YAML: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise IdentityConfigError(f"{path}: the file must be a mapping of sections")
+
+    def fail(message: str) -> None:
+        raise IdentityConfigError(f"{path}: {message}")
+
+    def number(value, where: str, *, low: float | None = None, high: float | None = None) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            fail(f"{where} must be a number, got {value!r}")
+        if low is not None and value < low:
+            fail(f"{where} must be at least {low}, got {value!r}")
+        if high is not None and value > high:
+            fail(f"{where} must be at most {high}, got {value!r}")
+        return float(value)
+
+    hazards = set(HAZARD_TYPES) - {"other"}
+    radius_raw = (raw.get("aggregation") or {}).get("radius_km")
+    if not isinstance(radius_raw, dict) or "default" not in radius_raw:
+        fail("aggregation.radius_km must be a mapping with a 'default' entry")
+    radius = {}
+    for key, value in radius_raw.items():
+        if key != "default" and key not in hazards:
+            fail(f"aggregation.radius_km: unknown hazard {key!r} (known: {', '.join(sorted(hazards))})")
+        radius[key] = number(value, f"aggregation.radius_km.{key}", low=0)
+    blocking_section = raw.get("blocking") or {}
+    blocking_raw = blocking_section.get("hazards") or {}
+    if not isinstance(blocking_raw, dict):
+        fail("blocking.hazards must be a mapping of hazard -> {km, days}")
+    blocking = {}
+    for key, value in blocking_raw.items():
+        if key not in hazards:
+            fail(f"blocking.hazards: unknown hazard {key!r}")
+        if not isinstance(value, dict) or "km" not in value or "days" not in value:
+            fail(f"blocking.hazards.{key} needs 'km' and 'days'")
+        blocking[key] = (number(value["km"], f"blocking.hazards.{key}.km", low=0), number(value["days"], f"blocking.hazards.{key}.days", low=0))
+    named_storm_km = number(blocking_section.get("named_storm_km", 5000), "blocking.named_storm_km", low=0)
+    thresholds = raw.get("thresholds") or {}
+    auto_merge = number(thresholds.get("auto_merge", 0.90), "thresholds.auto_merge", low=0, high=1)
+    proposal = number(thresholds.get("proposal", 0.60), "thresholds.proposal", low=0, high=1)
+    if proposal >= auto_merge:
+        fail("thresholds.proposal must be below thresholds.auto_merge")
+    score = raw.get("score") or {}
+    weights_raw = score.get("weights") or {}
+    weights = {name: number(weights_raw.get(name), f"score.weights.{name}", low=0, high=1) for name in ("spatial", "temporal", "text")}
+    if abs(sum(weights.values()) - 1.0) > 1e-6:
+        fail(f"score.weights must sum to 1, got {sum(weights.values()):g}")
+    return {
+        "path": str(path),
+        "aggregation_radius_km": radius,
+        "blocking": blocking,
+        "named_storm_km": named_storm_km,
+        "auto_merge": auto_merge,
+        "proposal": proposal,
+        "weights": weights,
+        "key_equal": number(score.get("key_equal", 1.0), "score.key_equal", low=0, high=1),
+        "glide_equal": number(score.get("glide_equal", 1.0), "score.glide_equal", low=0, high=1),
+        "storm_name_equal": number(score.get("storm_name_equal", 0.95), "score.storm_name_equal", low=0, high=1),
+    }
+
+
+IDENTITY = load_identity()
+# Two feeds' records share a pin automatically only within this distance (closest pair of positions).
+AGGREGATION_RADIUS_KM: dict[str, float] = IDENTITY["aggregation_radius_km"]
+
+
+def aggregation_radius_km(hazard_type: str | None) -> float:
+    return AGGREGATION_RADIUS_KM.get(hazard_type or "", AGGREGATION_RADIUS_KM["default"])
+
+
+# Blocking radius R (km) and window T (days) per hazard type of the incoming record; 'other' never blocks.
+BLOCKING: dict[str, tuple[float, float]] = IDENTITY["blocking"]
 # A named storm blocks by name inside its class and window ("names decide", §3): a track's first
 # point can be thousands of km from the other feed's current position, so its radius is basin-scale.
-# Unnamed storms and every other hazard block with the radius above.
-STORM_NAME_BLOCK_KM = 5000.0
-AUTO_MERGE_THRESHOLD = 0.90  # at or above: merge automatically (logged in event_lineage, reversible)
-PROPOSAL_THRESHOLD = 0.60  # at or above: create the event and write a merge_proposal for review
-SCORE_WEIGHTS = {"spatial": 0.5, "temporal": 0.3, "text": 0.2}
-SCORE_GLIDE_EQUAL = 1.0
-SCORE_STORM_NAME_EQUAL = 0.95
+STORM_NAME_BLOCK_KM = IDENTITY["named_storm_km"]
+AUTO_MERGE_THRESHOLD = IDENTITY["auto_merge"]  # at or above, inside the aggregation radius: merged automatically (reversible)
+PROPOSAL_THRESHOLD = IDENTITY["proposal"]  # at or above: create the event and write a merge_proposal for review
+SCORE_WEIGHTS = IDENTITY["weights"]
+SCORE_KEY_EQUAL = IDENTITY["key_equal"]
+SCORE_GLIDE_EQUAL = IDENTITY["glide_equal"]
+SCORE_STORM_NAME_EQUAL = IDENTITY["storm_name_equal"]
 TITLE_SIMILARITY = "jaccard"  # M3 adds "embedding"; eww.matching.title_similarity is the hook
 TITLE_STOPWORDS = {"in", "of", "the", "and", "a", "an", "at", "on", "near", "region", "province", "area", "island"}
 # Removed before comparing storm names, so "Tropical Cyclone NORBERT-26" equals "Hurricane Norbert".

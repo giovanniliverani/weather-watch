@@ -119,6 +119,11 @@ with tab_review:
             distance = "?" if proposal["distance_km"] is None else f"{proposal['distance_km']:.0f} km apart"
             apart = "?" if proposal["days_apart"] is None else f"{proposal['days_apart']:.1f} days apart"
             st.markdown(f"**Score {proposal['score']:.2f}** · {distance} · {apart} · title similarity {proposal['text_sim'] if proposal['text_sim'] is not None else '?'} · rule {proposal['rule'] or '?'}")
+            if proposal["keys"]:
+                cited = ", ".join(f"{source} {external_id}" for source, external_id in proposal["keys"])
+                st.caption(f"One feed cites the other's id ({cited}); kept apart because the positions lie beyond the {proposal['aggregation_radius_km']:.0f} km aggregation radius.")
+            elif proposal["within_aggregation_radius"] is False:
+                st.caption(f"Scored high enough to merge but the positions lie beyond the {proposal['aggregation_radius_km']:.0f} km aggregation radius (identity.yaml).")
             left, right, actions = st.columns([5, 5, 2])
             for column, event, label in ((left, a, "A (newer)"), (right, b, "B (existing)")):
                 with column:

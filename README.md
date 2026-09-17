@@ -59,14 +59,20 @@ Data branch layout: `snapshots/<source>/<YYYY-MM-DDTHH-MM>Z.json` (the raw items
 
 The same flood or cyclone arrives from several feeds and must become one pin, reversibly. Copernicus EMS Rapid Mapping activations join the spine (`--all-spine` now collects GDACS, EONET and Copernicus). `eww resolve` applies the identity rules of [docs/architecture.md §3](docs/architecture.md) to each new record, in this order: the GLIDE number; the feed's own id (a new GDACS episode, a new EONET track point); the deterministic cross-source keys (Copernicus `gdacsId`, the GDACS report URL EONET cites), in both directions; then blocking and scoring inside a hazard class, with a radius and a time window per hazard from `eww/config.py`. A score of 0.90 or more merges automatically, 0.60 to 0.90 writes a `merge_proposal` for the Review tab, and less creates a separate event. Named storms merge on their name (a track's first point can be thousands of km from the other feed's current position, so named storms block basin-wide); two differently named storms are never merged automatically; a pair the sources themselves keep apart (an EONET item that cites a *different* GDACS id) is never scored. Every merge moves records under a pointer and writes an `event_lineage` row with the exact ids moved; a revert undoes precisely that row and writes a second one. No event row is ever deleted.
 
+**The aggregation radius.** Two feeds' records share one pin automatically only when their positions lie within the aggregation radius in [identity.yaml](identity.yaml) (25 km by default, wider for storm classes whose tracks each feed samples hours apart, and for regional hazards), measured between the closest pair of their positions. That gate applies to every automatic join, a shared id or GLIDE number included: beyond the radius the pipeline keeps two pins and writes a proposal saying "cites GDACS 1104124, 85 km apart" for the Review tab. A feed's own successive records (a storm track, a new GDACS episode) are one event by that feed's identity and are not gated, and a person's accept is never gated. On 2026-09-17 the gate did more than keep three Nepal flood positions 85 to 102 km apart on two pins: it caught EONET items citing GDACS wildfire ids that GDACS had since reused for fires on other continents (Indonesia → United States, Australia → Algeria, Brazil → Russia), which the id alone had merged silently. GDACS wildfire ids are not stable over time.
+
 ```bash
 uv run eww collect --source copernicus --days 30                          # the new spine source (part of --all-spine)
-uv run eww resolve                                                        # now reports keys, auto-merges and proposals
+uv run eww resolve                                                        # now reports keys, auto-merges, proposals and pairs kept apart by the radius
+uv run eww identity                                                       # the identity parameters in force (identity.yaml)
+uv run eww report identity --days 30                                      # docs/m2.md: joins by rule, how far apart the feeds place one event, proposals, labels
 uv run eww export --since 7d --hazard flood --min-severity 0.66 --count   # the pin count the viewer must match
 uv run eww labels candidates --days 30                                    # data/labels/merge_candidates.csv: every blocked pair, its evidence, an empty same_event
 uv run eww eval merges                                                    # precision and recall of the auto-merge rule against data/labels/merge_pairs.csv
 uv run eww doctor                                                         # ... plus merges, proposals and EMS activations
 ```
+
+Tuning: every number behind identity (aggregation radius per hazard, blocking radii and windows, thresholds, score weights) lives in `identity.yaml`; a typo or an unknown hazard name fails at start-up instead of being ignored. Edit a value, rebuild the database from the snapshots (`uv run python .cursor/skills/playbook/files/rebuild-database.py --swap`, 8 seconds on 2026-09-17), then re-run `eww eval merges` and `eww report identity` to see what changed.
 
 Labelling: copy rows from `merge_candidates.csv` into `merge_pairs.csv` and fill `same_event` with `yes` or `no`; the `linked` column says a feed cites the other feed's id, `key_conflict` says it cites a different one, and `pipeline`/`merged_by` are the verdict at the time of writing. `eww eval merges` re-reads the database, so labels stay valid across rebuilds and merges. The file shipped on 2026-09-17 holds a starter set of 24 true pairs and 24 non-pairs labelled from facts in the feeds themselves (same storm name in both feeds, an explicit GDACS id, or a conflicting one), marked in `labelled_by`, plus the open proposals with an empty label: review them, overwrite freely.
 
@@ -77,7 +83,9 @@ Identity rules apply when a record is first resolved. To re-apply changed rules 
 | Path | What it is |
 |---|---|
 | `eww/cli.py` | the `eww` command (typer) |
-| `eww/config.py` | every setting: paths, User-Agent, feed URLs, hazard mappings, severity scores, the density bar |
+| `eww/config.py` | every setting: paths, User-Agent, feed URLs, hazard mappings, severity scores, the density bar; loads and validates `identity.yaml` |
+| `identity.yaml` | the tunable identity numbers: aggregation radius per hazard, blocking radii and windows, thresholds, score weights |
+| `docs/m2.md` | the M2 identity report written by `eww report identity`: parameters in force, joins by rule, feed disagreement, proposals, labels |
 | `eww/db.py`, `sql/schema.sql` | SQLite connection (WAL, foreign keys) and the DDL, copied verbatim from the architecture document |
 | `eww/collectors/gdacs.py`, `eww/collectors/eonet.py`, `eww/collectors/copernicus.py` | `fetch(since, until)`, `normalise(item)`, `linked_ids(payload)` and `storm_name(payload)` per source; raw items go to `data/snapshots/<source>/<YYYY-MM-DDTHH-MM>Z.json` |
 | `eww/ingest.py` | snapshot files -> `source_record` and `collector_run`, idempotent on the natural key plus payload hash |

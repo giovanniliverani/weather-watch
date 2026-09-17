@@ -71,6 +71,7 @@ class Score:
     radius_km: float | None
     window_days: float | None
     names_differ: bool = False  # two named storms with different names: never merged automatically
+    key_match: bool = False  # one entity cites the other's id (Copernicus gdacsId, the GDACS URL EONET carries)
 
 
 # ----------------------------------------------------------------------------- hazards
@@ -214,6 +215,24 @@ def min_distance_km(a: Entity, b: Entity) -> float | None:
     return min(geo.haversine_km(la, lo, lb, lob) for la, lo in a.all_positions for lb, lob in b.all_positions)
 
 
+def shared_keys(a: Entity, b: Entity) -> list[tuple[str, str]]:
+    """The (source_id, external_id) keys one entity cites that name a record of the other."""
+    keys = [k for k in sorted(a.linked_ids) if k in b.external_ids] + [k for k in sorted(b.linked_ids) if k in a.external_ids]
+    return list(dict.fromkeys(keys))
+
+
+def aggregation_radius(entity: Entity) -> float:
+    """How close another feed's position must be for its record to share this entity's pin automatically."""
+    return config.aggregation_radius_km(entity.hazard_type)
+
+
+def within_aggregation_radius(a: Entity, b: Entity) -> tuple[bool, float | None, float]:
+    """(inside, distance_km, radius_km). Without coordinates on one side there is nothing to contradict: inside."""
+    radius = aggregation_radius(a)
+    distance = min_distance_km(a, b)
+    return (distance is None or distance <= radius), (None if distance is None else round(distance, 1)), radius
+
+
 def key_conflict(a: Entity, b: Entity) -> bool:
     """True when one entity's deterministic key names a *different* record of a source the other entity holds."""
     for source_id, external_id in a.linked_ids:
@@ -299,6 +318,7 @@ def score(a: Entity, b: Entity) -> Score:
     both_named = bool(same_class and hazard_class(a.hazard_type) == "storm" and a.storm_name and b.storm_name)
     name_match = bool(both_named and a.storm_name == b.storm_name and (days is None or window_days is None or days <= window_days))
     names_differ = bool(both_named and a.storm_name != b.storm_name)
+    key_match = bool(shared_keys(a, b))
     weights = config.SCORE_WEIGHTS
     weighted = weights["spatial"] * spatial + weights["temporal"] * temporal + weights["text"] * text
     best, rule = (weighted, "weighted") if same_class else (0.0, "none")
@@ -306,6 +326,8 @@ def score(a: Entity, b: Entity) -> Score:
         best, rule = config.SCORE_STORM_NAME_EQUAL, "storm_name"
     if glide_match and config.SCORE_GLIDE_EQUAL > best:
         best, rule = config.SCORE_GLIDE_EQUAL, "glide"
+    if key_match and config.SCORE_KEY_EQUAL > best:
+        best, rule = config.SCORE_KEY_EQUAL, "key"
     return Score(
         score=round(best, 4),
         rule=rule,
@@ -319,15 +341,20 @@ def score(a: Entity, b: Entity) -> Score:
         radius_km=radius_km,
         window_days=window_days,
         names_differ=names_differ,
+        key_match=key_match,
     )
 
 
 def evidence(a: Entity, b: Entity, s: Score) -> dict:
     """What merge_proposal.evidence and event_lineage.evidence record for a scored pair."""
+    inside, _, radius = within_aggregation_radius(a, b)
     return {
         "rule": s.rule,
         "score": s.score,
         "distance_km": s.distance_km,
+        "aggregation_radius_km": radius,
+        "within_aggregation_radius": inside,
+        "keys": [list(k) for k in shared_keys(a, b)],
         "days_apart": s.days_apart,
         "spatial": s.spatial,
         "temporal": s.temporal,

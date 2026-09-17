@@ -127,9 +127,13 @@ def test_named_storm_merges_even_when_its_first_track_point_is_far_away(conn, da
     ingest_items(conn, data_dir, "gdacs", [gdacs_storm], T0)
     ingest_items(conn, data_dir, "eonet", [first], T0)
     stats = resolve.resolve(conn)
-    assert (stats.events_merged, stats.events_attached, live_events(conn)) == (1, 1, 1)  # first point 3,900 km away, second attaches as a sibling
+    # the first point, 3,900 km away, is beyond the storm aggregation radius: proposed; the second point
+    # attaches as a sibling, the re-score finds the tracks 52 km apart and merges, accepting that proposal
+    assert (stats.events_merged, stats.events_attached, stats.proposals_created, live_events(conn)) == (1, 1, 1, 1)
     evidence = json.loads(conn.execute("SELECT evidence FROM event_lineage").fetchone()[0])
-    assert evidence["rule"] == "storm_name" and evidence["distance_km"] > 3000
+    assert evidence["rule"] == "storm_name" and evidence["distance_km"] < config.aggregation_radius_km("tropical_cyclone")
+    assert evidence["within_aggregation_radius"] is True
+    assert count(conn, "SELECT COUNT(*) FROM merge_proposal WHERE status = 'accepted'") == 1
     unnamed = gdacs_item(1001399, "TC", "Tropical Cyclone TWENTYNINE-26", 10.0, -110.0, "2026-08-28T00:00:00", eventname="TWENTYNINE-26")
     ingest_items(conn, data_dir, "gdacs", [unnamed], T1)
     again = resolve.resolve(conn)
@@ -355,3 +359,78 @@ def test_blocking_excludes_events_of_the_same_source(conn, data_dir):
     ingest_items(conn, data_dir, "gdacs", [first, second], T0)
     stats = resolve.resolve(conn)
     assert stats.events_created == 2 and stats.events_merged == 0 and stats.proposals_created == 0
+
+
+# ----------------------------------------------------------------------------- the aggregation radius (identity.yaml)
+def nepal_trio():
+    """The real Flood in Nepal positions of 2026-09-17: GDACS 85 km south of EONET, Copernicus 17 km from EONET."""
+    gdacs_flood = gdacs_item(1104124, "FL", "Flood in Nepal", 27.2953, 85.3649, "2026-08-26T01:00:00", alertlevel="Red", episodealertscore=2.5, iso3="NPL", glide="FL-2026-000167-NPL")
+    mirror = eonet_item("EONET_23468", "Flood in Nepal 1104124", "floods", [85.3843, 28.0638], "2026-08-25T20:00:00Z", sources=(gdacs_source("FL", 1104124),), closed="2026-08-27T00:00:00Z")
+    activation = copernicus_item("EMSR927", "Flood in Nepal", "Flood", 85.3538, 28.2122, "2026-08-25T22:00:00", "2026-08-26T09:53:00", gdacs_id="FL1104124", countries=("Nepal",))
+    return gdacs_flood, mirror, activation
+
+
+def test_id_named_event_beyond_the_aggregation_radius_is_proposed_not_joined(conn, data_dir):
+    gdacs_flood, mirror, activation = nepal_trio()
+    ingest_items(conn, data_dir, "gdacs", [gdacs_flood], T0)
+    ingest_items(conn, data_dir, "eonet", [mirror], T0)
+    ingest_items(conn, data_dir, "copernicus", [activation], T0)
+    stats = resolve.resolve(conn)
+    # EONET cites GDACS 1104124 but sits 85 km away: its own event plus a proposal. Copernicus cites the same
+    # GDACS id (102 km away) but scores 0.93 against the EONET event 17 km away: merged there instead.
+    assert (stats.events_created, stats.events_merged, stats.records_gated, stats.proposals_created) == (3, 1, 2, 1)
+    assert live_events(conn) == 2 and len(pins(conn)) == 2
+    proposals = review.open_proposals(conn)
+    assert len(proposals) == 1
+    proposal = proposals[0]
+    assert proposal["rule"] == "key" and proposal["score"] == config.SCORE_KEY_EQUAL
+    assert proposal["keys"] == [("gdacs", "1104124")] and proposal["within_aggregation_radius"] is False
+    assert 80 < proposal["distance_km"] < 90 and proposal["aggregation_radius_km"] == 25.0
+    assert sorted([proposal["event_a"]["source_ids"], proposal["event_b"]["source_ids"]]) == [["copernicus", "eonet"], ["gdacs"]]
+    north = next(f for f in pins(conn) if "copernicus" in f["properties"]["source_ids"])
+    assert north["properties"]["ems_activation"] is True and north["properties"]["severity_score"] == config.EMS_SEVERITY_FLOOR
+    assert abs(north["geometry"]["coordinates"][1] - 28.2122) < 1e-3  # Copernicus is the primary source of the northern pin
+    south = next(f for f in pins(conn) if f["properties"]["source_ids"] == ["gdacs"])
+    assert south["properties"]["severity_label"] == "Red" and abs(south["geometry"]["coordinates"][1] - 27.2953) < 1e-3
+    lineage = conn.execute("SELECT * FROM event_lineage").fetchall()
+    assert len(lineage) == 1 and json.loads(lineage[0]["evidence"])["rule"] == "weighted" and json.loads(lineage[0]["evidence"])["within_aggregation_radius"] is True
+
+    # a person may still decide the three are one flood: accepting the proposal gives one pin with three sources
+    review.accept(proposal["proposal_id"], conn)
+    features = pins(conn)
+    assert len(features) == 1 and features[0]["properties"]["source_ids"] == ["copernicus", "eonet", "gdacs"]
+    assert features[0]["properties"]["severity_label"] == "Red" and features[0]["geometry"]["coordinates"] == [85.3649, 27.2953]
+    again = resolve.resolve(conn)
+    assert (again.records_resolved, again.events_changed) == (0, 0)
+
+
+def test_a_wider_radius_lets_the_cited_id_join(conn, data_dir, monkeypatch):
+    monkeypatch.setattr(config, "AGGREGATION_RADIUS_KM", {"default": 200.0})
+    gdacs_flood, mirror, activation = nepal_trio()
+    ingest_items(conn, data_dir, "gdacs", [gdacs_flood], T0)
+    ingest_items(conn, data_dir, "eonet", [mirror], T0)
+    ingest_items(conn, data_dir, "copernicus", [activation], T0)
+    stats = resolve.resolve(conn)
+    assert (stats.events_created, stats.events_linked, stats.records_gated, stats.proposals_created) == (1, 2, 0, 0)
+    assert live_events(conn) == 1 and pins(conn)[0]["properties"]["source_ids"] == ["copernicus", "eonet", "gdacs"]
+
+
+def test_a_named_storm_beyond_its_radius_is_proposed(conn, data_dir, monkeypatch):
+    monkeypatch.setattr(config, "AGGREGATION_RADIUS_KM", {"default": 25.0})  # no storm-class allowance
+    gdacs_storm, eonet_storm = storm_pair()  # 127 km apart
+    ingest_items(conn, data_dir, "gdacs", [gdacs_storm], T0)
+    ingest_items(conn, data_dir, "eonet", [eonet_storm], T0)
+    stats = resolve.resolve(conn)
+    assert (stats.events_merged, stats.proposals_created, live_events(conn)) == (0, 1, 2)
+    proposal = review.open_proposals(conn)[0]
+    assert proposal["rule"] == "storm_name" and proposal["score"] == config.SCORE_STORM_NAME_EQUAL
+    assert proposal["within_aggregation_radius"] is False and proposal["aggregation_radius_km"] == 25.0
+
+
+def test_records_without_coordinates_join_on_their_key(conn, data_dir):
+    gdacs_flood, mirror, _ = nepal_trio()
+    blind = {**mirror, "geometry": [{**mirror["geometry"][0], "type": "Point", "coordinates": None}]}
+    ingest_items(conn, data_dir, "gdacs", [gdacs_flood], T0)
+    ingest_items(conn, data_dir, "eonet", [blind], T0)
+    stats = resolve.resolve(conn)
+    assert (stats.events_linked, stats.records_gated, live_events(conn)) == (1, 0, 1)

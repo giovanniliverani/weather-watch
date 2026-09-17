@@ -1,0 +1,52 @@
+# Extreme Weather Watch: the tunable numbers behind "one event, one pin" (docs/architecture.md §3).
+#
+# Edit a value, then apply it to the events already in the database by rebuilding from the snapshots:
+#     uv run python .cursor/skills/playbook/files/rebuild-database.py --swap
+# `uv run eww identity` prints what is in force; `uv run eww report identity` writes docs/m2.md with
+# the measured effect. Distances are km, windows are days, scores run from 0 to 1. Hazard names are
+# the event.hazard_type values; an unknown name fails at start-up rather than being ignored.
+
+aggregation:
+  # Two feeds' records join one pin automatically only when their positions lie within this many km of
+  # each other (the closest pair of positions when an event has several). Beyond it the pipeline never
+  # aggregates on its own, whatever a shared id or a score says: it keeps two pins and writes a merge
+  # proposal for the Review tab. A feed's own successive records (a storm track, a new GDACS episode)
+  # are one event by that feed's identity and are not gated. A record without coordinates cannot
+  # contradict a pin and joins on its key.
+  radius_km:
+    default: 25
+    tropical_cyclone: 200   # each feed samples a track hours apart; 182 km was the widest gap among 13 correct name matches on 2026-09-17
+    severe_storm: 100
+    drought: 250            # regional: a feed puts its centroid anywhere inside a very large area
+    heatwave: 250
+    coldwave: 250
+
+blocking:
+  # Which live events a new record is compared with at all: same hazard class, |start difference| <= days,
+  # distance <= km. Wider than the aggregation radius on purpose: a pair inside the block but outside the
+  # radius becomes a proposal a person decides.
+  hazards:
+    tropical_cyclone: {km: 500, days: 10}
+    flood: {km: 250, days: 5}
+    wildfire: {km: 100, days: 7}
+    severe_storm: {km: 200, days: 3}
+    drought: {km: 500, days: 30}
+    heatwave: {km: 500, days: 10}
+    coldwave: {km: 500, days: 10}
+    landslide: {km: 50, days: 3}
+    volcano: {km: 50, days: 30}
+    earthquake: {km: 150, days: 2}
+    tsunami: {km: 500, days: 2}
+  # A named storm blocks by name ("names decide"): its first track point can be thousands of km from the
+  # other feed's current position.
+  named_storm_km: 5000
+
+thresholds:
+  auto_merge: 0.90   # at or above, inside the aggregation radius, same storm name or none: merged automatically (reversible)
+  proposal: 0.60     # at or above: a merge proposal for the Review tab
+
+score:
+  weights: {spatial: 0.5, temporal: 0.3, text: 0.2}   # must sum to 1
+  key_equal: 1.0          # one feed cites the other's id (Copernicus gdacsId, the GDACS URL EONET carries)
+  glide_equal: 1.0        # both carry the same GLIDE number
+  storm_name_equal: 0.95  # both are named storms with the same normalised name inside the window

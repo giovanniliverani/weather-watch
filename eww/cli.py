@@ -191,7 +191,7 @@ def sync(
     typer.echo(
         f"sync: fetch={fetched} branch_head={(branch_result.head or 'none')[:12]} snapshots_new={snapshots_new} "
         f"records_new={records_new} records_changed={records_changed} runs_loaded={branch_result.runs_inserted} "
-        f"events_created={stats.events_created} linked={stats.events_linked} merged={stats.events_merged} proposed={stats.proposals_created} "
+        f"events_created={stats.events_created} linked={stats.events_linked} merged={stats.events_merged} proposed={stats.proposals_created} gated={stats.records_gated} "
         f"events_changed={stats.events_changed} unresolved={resolve.unresolved_count(conn)} "
         f"missed_runs_7d={beat['missed_runs_7d']}/{beat['expected_runs_7d']} took={time.monotonic() - started:.1f}s"
     )
@@ -207,7 +207,8 @@ def resolve_cmd(
     stats = resolve.resolve(conn, refresh_days=refresh_days or None)
     typer.echo(
         f"records resolved: {stats.records_resolved} (events created: {stats.events_created}, attached to existing: {stats.events_attached}, "
-        f"of which by cross-source key: {stats.events_linked}; auto-merged: {stats.events_merged}; proposals written: {stats.proposals_created}); "
+        f"of which by cross-source key: {stats.events_linked}; auto-merged: {stats.events_merged}; proposals written: {stats.proposals_created}; "
+        f"kept apart by the aggregation radius: {stats.records_gated}); "
         f"events refreshed: {stats.events_refreshed} (changed: {stats.events_changed}); "
         f"unresolved now: {resolve.unresolved_count(conn)}; events: {_count(conn, 'event')} "
         f"(live: {conn.execute('SELECT COUNT(*) FROM event WHERE merged_into_event_id IS NULL').fetchone()[0]})"
@@ -250,6 +251,10 @@ def doctor(days: int = typer.Option(30, "--days", help="Window for the 'events o
     conn = _open()
     now = now_utc()
     typer.echo(f"database: {_state['db'] or config.DB_PATH} (schema_version {db.schema_version(conn)}, sqlite {conn.execute('SELECT sqlite_version()').fetchone()[0]})")
+    typer.echo(
+        f"identity: {config.IDENTITY['path']}; aggregation radius default {config.aggregation_radius_km(None):g} km; "
+        f"auto-merge {config.AUTO_MERGE_THRESHOLD:g}, proposal {config.PROPOSAL_THRESHOLD:g}"
+    )
     dupes = ingest.duplicates(conn)
     typer.echo(f"duplicate source_record keys (source_id, external_id, external_episode): {len(dupes)}")
     for row in dupes[:20]:
@@ -335,6 +340,37 @@ def report_volume(
         f"size-pack={result['size_pack_mb']:.2f} MB over {result['days']:.1f} days of snapshots "
         f"({result['snapshot_files']} files, {result['commits']} commits); per day={result['per_day_mb']} MB; "
         f"per year={result['per_year_mb']} MB; verdict={result['verdict']}"
+    )
+
+
+@report_app.command("identity")
+def report_identity(
+    days: int = typer.Option(30, "--days", help="Window for the event counts and the feed-disagreement table."),
+    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m2.md"),
+) -> None:
+    """Write the M2 identity report: parameters in force, joins by rule, how far apart the feeds place one event, open proposals, labels."""
+    conn = _open()
+    path, result = report.write_identity_report(conn, out, days=days)
+    typer.echo(f"written {path}")
+    typer.echo(
+        f"live events in {days} days={result['events_in_window']} multi-source={result['multi_source_in_window']} "
+        f"merges={sum(m['count'] for m in result['merges'])} open proposals={len(result['open_proposals'])} "
+        f"kept apart by the aggregation radius={len(result['gated'])}"
+    )
+
+
+# ----------------------------------------------------------------------------- identity parameters
+@app.command("identity")
+def identity_cmd() -> None:
+    """Print the identity parameters in force (identity.yaml): aggregation radius, blocking, thresholds, score."""
+    ident = config.IDENTITY
+    typer.echo(f"identity file: {ident['path']}")
+    typer.echo("aggregation radius (km): " + ", ".join(f"{k}={v:g}" for k, v in ident["aggregation_radius_km"].items()))
+    typer.echo("blocking (km/days): " + ", ".join(f"{h}={km:g}/{d:g}" for h, (km, d) in ident["blocking"].items()) + f"; named storms {ident['named_storm_km']:g} km")
+    typer.echo(f"thresholds: auto-merge {ident['auto_merge']:g}, proposal {ident['proposal']:g}")
+    typer.echo(
+        f"score: weights spatial {ident['weights']['spatial']:g} temporal {ident['weights']['temporal']:g} text {ident['weights']['text']:g}; "
+        f"key {ident['key_equal']:g}, glide {ident['glide_equal']:g}, storm name {ident['storm_name_equal']:g}"
     )
 
 
