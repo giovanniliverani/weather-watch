@@ -8,10 +8,13 @@ from typer.testing import CliRunner
 from eww import db
 from eww.cli import app
 from eww.collect import collect_source, summary_line
-from eww.collectors import eonet, gdacs
+from eww.collectors import copernicus, eonet, gdacs
 from eww.collectors.base import FetchResult
 from eww.clock import now_utc
-from tests.conftest import eonet_events, gdacs_features
+from tests.conftest import copernicus_activations, eonet_events, gdacs_features
+
+COPERNICUS_ITEMS = 9  # fixture activations; one is a public event and yields no record
+COPERNICUS_RECORDS = 8
 
 
 def fake_gdacs(since, until, **kwargs):
@@ -20,6 +23,10 @@ def fake_gdacs(since, until, **kwargs):
 
 def fake_eonet_failure(since, until, **kwargs):
     raise httpx.ConnectError("boom")
+
+
+def fake_copernicus(since, until, **kwargs):
+    return FetchResult(items=copernicus_activations(), http_status=200)
 
 
 def read_runs(out_dir):
@@ -56,31 +63,36 @@ def test_collect_out_writes_files_and_touches_no_database(tmp_path, monkeypatch)
 def test_cli_exit_code_and_summary(tmp_path, monkeypatch):
     monkeypatch.setattr(gdacs, "fetch", fake_gdacs)
     monkeypatch.setattr(eonet, "fetch", fake_eonet_failure)
+    monkeypatch.setattr(copernicus, "fetch", fake_copernicus)
     runner = CliRunner()
     out = tmp_path / "out"
     result = runner.invoke(app, ["--db", str(tmp_path / "unused.sqlite"), "collect", "--all-spine", "--out", str(out)])
     assert result.exit_code == 0, result.output
-    assert result.stdout.strip().splitlines()[-1] == "collect summary: gdacs=3 eonet=failed"
+    assert result.stdout.strip().splitlines()[-1] == f"collect summary: gdacs=3 eonet=failed copernicus={COPERNICUS_ITEMS}"
     assert not (tmp_path / "unused.sqlite").exists()  # --out means no database
+    assert (out / "snapshots" / "copernicus").exists()
 
     monkeypatch.setattr(gdacs, "fetch", fake_eonet_failure)
+    monkeypatch.setattr(copernicus, "fetch", fake_eonet_failure)
     result = runner.invoke(app, ["--db", str(tmp_path / "unused.sqlite"), "collect", "--all-spine", "--out", str(out)])
     assert result.exit_code == 1
-    assert "collect summary: gdacs=failed eonet=failed" in result.stdout
-    assert len(read_runs(out)) == 4  # every attempt is logged, failed ones included
+    assert "collect summary: gdacs=failed eonet=failed copernicus=failed" in result.stdout
+    assert len(read_runs(out)) == 6  # every attempt is logged, failed ones included
 
 
 def test_local_collect_ingests_and_records_runs(tmp_path, monkeypatch):
     monkeypatch.setattr(gdacs, "fetch", fake_gdacs)
     monkeypatch.setattr(eonet, "fetch", lambda since, until, **kw: FetchResult(items=eonet_events(), http_status=200))
+    monkeypatch.setattr(copernicus, "fetch", fake_copernicus)
     monkeypatch.setattr(db.config, "DATA_DIR", tmp_path / "data")
     runner = CliRunner()
     db_path = tmp_path / "local.sqlite"
     result = runner.invoke(app, ["--db", str(db_path), "collect"])
     assert result.exit_code == 0, result.output
-    assert "new source_record rows: 16" in result.stdout
+    assert f"new source_record rows: {3 + 13 + COPERNICUS_RECORDS}" in result.stdout
     conn = db.connect(db_path)
-    assert conn.execute("SELECT COUNT(*) FROM collector_run").fetchone()[0] == 2
-    assert conn.execute("SELECT COUNT(*) FROM snapshot_ingest").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM collector_run").fetchone()[0] == 3
+    assert conn.execute("SELECT COUNT(*) FROM snapshot_ingest").fetchone()[0] == 3
+    assert conn.execute("SELECT COUNT(*) FROM source_record WHERE source_id = 'copernicus'").fetchone()[0] == COPERNICUS_RECORDS
     assert (tmp_path / "data" / "runs").exists()
     conn.close()

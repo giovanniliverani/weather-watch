@@ -18,11 +18,11 @@ import sqlite3
 from datetime import datetime
 from typing import Iterable
 
-from eww import collectors, config, db, heartbeat
+from eww import collectors, config, db, events, heartbeat
 from eww.clock import now_utc, parse_when, to_iso
 
 HAZARD_TYPES: list[str] = list(config.HAZARD_TYPES)
-EMS_SOURCE_ID = "copernicus_ems"  # joins in M2; ems_activation is True when it has a record on the event
+EMS_SOURCE_ID = "copernicus"  # ems_activation is True when a Copernicus EMS activation sits on the event
 DEFAULT_LIMIT = 2000
 
 EVENT_PROPERTIES = (
@@ -205,11 +205,13 @@ def _documents_by_event(conn, members: dict[str, list[str]]) -> dict[str, dict]:
 
 
 def _detail_url(records: list[sqlite3.Row], primary_event_id: str) -> str | None:
+    """The primary source's page (config.PRIMARY_SOURCE_ORDER), latest record first, as for the title and the pin."""
     own = [r for r in records if r["event_id"] == primary_event_id] or records
-    for row in reversed(own):
-        url = collectors.get(row["source_id"]).detail_url(json.loads(row["payload"]))
-        if url:
-            return url
+    for source_id in events.source_order({r["source_id"] for r in own}):
+        for row in reversed([r for r in own if r["source_id"] == source_id]):
+            url = collectors.get(row["source_id"]).detail_url(json.loads(row["payload"]))
+            if url:
+                return url
     return None
 
 
@@ -248,13 +250,14 @@ def _feature(event: sqlite3.Row, records: list[sqlite3.Row], documents: dict) ->
 
 
 def _footprints(conn, members: dict[str, list[str]]) -> list[dict]:
-    owner = {m: canonical for canonical, ms in members.items() for m in ms}
+    """Footprint rows of the canonical events only: a merge moves the records, and the canonical
+    event's refresh rebuilds their polygons under its own id, so a merged member's rows would draw twice."""
     features = []
-    for chunk in _chunks(list(owner)):
+    for chunk in _chunks(list(members)):
         marks = ", ".join("?" * len(chunk))
         roles = ", ".join(f"'{r}'" for r in FOOTPRINT_ROLES)
         for row in conn.execute(
-            f"SELECT event_id, role, geojson, observed_at, source_id FROM event_geometry WHERE role IN ({roles}) AND event_id IN ({marks}) ORDER BY observed_at",
+            f"SELECT event_id, role, geojson, observed_at, source_id FROM event_geometry WHERE role IN ({roles}) AND event_id IN ({marks}) ORDER BY observed_at, geometry_id",
             chunk,
         ):
             features.append(
@@ -262,7 +265,7 @@ def _footprints(conn, members: dict[str, list[str]]) -> list[dict]:
                     "type": "Feature",
                     "geometry": json.loads(row["geojson"]),
                     "properties": {
-                        "event_id": owner[row["event_id"]],
+                        "event_id": row["event_id"],
                         "role": row["role"],
                         "observed_at": row["observed_at"],
                         "source_id": row["source_id"],

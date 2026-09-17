@@ -1,4 +1,4 @@
-"""The `eww` command line: init-db, collect, ingest, sync, resolve, export, doctor, report, task-scheduler.
+"""The `eww` command line: init-db, collect, ingest, sync, resolve, export, doctor, report, labels, eval, task-scheduler.
 
 Every command is idempotent and safe to re-run. Logs are structured key=value lines on stderr
 so that `eww export > events.geojson` stays clean JSON on stdout.
@@ -17,7 +17,7 @@ from typing import Optional
 
 import typer
 
-from eww import api, collectors, config, db, gitdata, heartbeat, ingest, report, resolve, snapshots
+from eww import api, collectors, config, db, gitdata, heartbeat, ingest, labels, report, resolve, snapshots
 from eww.clock import now_utc, parse_iso, parse_when, to_iso
 from eww.collect import collect_source, summary_line
 
@@ -29,6 +29,10 @@ app = typer.Typer(
 )
 report_app = typer.Typer(help="Reports written under docs/.", no_args_is_help=True, rich_markup_mode=None)
 app.add_typer(report_app, name="report")
+labels_app = typer.Typer(help="Hand-labelling of cross-source merge pairs (data/labels/).", no_args_is_help=True, rich_markup_mode=None)
+app.add_typer(labels_app, name="labels")
+eval_app = typer.Typer(help="Evaluate the pipeline against hand labels.", no_args_is_help=True, rich_markup_mode=None)
+app.add_typer(eval_app, name="eval")
 
 log = logging.getLogger("eww")
 _state: dict[str, Optional[Path]] = {"db": None}
@@ -187,7 +191,8 @@ def sync(
     typer.echo(
         f"sync: fetch={fetched} branch_head={(branch_result.head or 'none')[:12]} snapshots_new={snapshots_new} "
         f"records_new={records_new} records_changed={records_changed} runs_loaded={branch_result.runs_inserted} "
-        f"events_created={stats.events_created} events_changed={stats.events_changed} unresolved={resolve.unresolved_count(conn)} "
+        f"events_created={stats.events_created} linked={stats.events_linked} merged={stats.events_merged} proposed={stats.proposals_created} "
+        f"events_changed={stats.events_changed} unresolved={resolve.unresolved_count(conn)} "
         f"missed_runs_7d={beat['missed_runs_7d']}/{beat['expected_runs_7d']} took={time.monotonic() - started:.1f}s"
     )
 
@@ -201,9 +206,11 @@ def resolve_cmd(
     conn = _open()
     stats = resolve.resolve(conn, refresh_days=refresh_days or None)
     typer.echo(
-        f"records resolved: {stats.records_resolved} (events created: {stats.events_created}, attached to existing: {stats.events_attached}); "
+        f"records resolved: {stats.records_resolved} (events created: {stats.events_created}, attached to existing: {stats.events_attached}, "
+        f"of which by cross-source key: {stats.events_linked}; auto-merged: {stats.events_merged}; proposals written: {stats.proposals_created}); "
         f"events refreshed: {stats.events_refreshed} (changed: {stats.events_changed}); "
-        f"unresolved now: {resolve.unresolved_count(conn)}; events: {_count(conn, 'event')}"
+        f"unresolved now: {resolve.unresolved_count(conn)}; events: {_count(conn, 'event')} "
+        f"(live: {conn.execute('SELECT COUNT(*) FROM event WHERE merged_into_event_id IS NULL').fetchone()[0]})"
     )
 
 
@@ -217,12 +224,16 @@ def export(
     footprints: bool = typer.Option(False, "--footprints", help="Include footprint/track polygons."),
     limit: int = typer.Option(0, "--limit", help="Maximum number of events; 0 = every event in the window."),
     out: Optional[Path] = typer.Option(None, "--out", help="Write here instead of stdout."),
+    count: bool = typer.Option(False, "--count", help="Print only the number of pins (Point features) the filters select."),
 ) -> None:
     """Print the GeoJSON FeatureCollection defined in eww/api.py."""
     conn = _open()
     collection = api.events_geojson(
         since, until, hazard or None, min_severity, status or None, None, footprints, limit, conn=conn
     )
+    if count:
+        typer.echo(sum(1 for f in collection["features"] if f["geometry"]["type"] == "Point"))
+        return
     text = json.dumps(collection, ensure_ascii=True, separators=(",", ":"))
     if out is not None:
         out.write_text(text, encoding="utf-8")
@@ -255,6 +266,16 @@ def doctor(days: int = typer.Option(30, "--days", help="Window for the 'events o
     since = to_iso(now - timedelta(days=days))
     typer.echo(f"events observed in the last {days} days (the exporter's window, since {since}): {api.count_in_window(conn, since, now=now)}")
     typer.echo(f"events without a centroid: {conn.execute('SELECT COUNT(*) FROM event WHERE centroid_lat IS NULL').fetchone()[0]}")
+    merged = conn.execute("SELECT COUNT(*) FROM event WHERE merged_into_event_id IS NOT NULL").fetchone()[0]
+    merges = conn.execute("SELECT COUNT(*) FROM event_lineage WHERE action = 'merge'").fetchone()[0]
+    reverted = conn.execute("SELECT COUNT(*) FROM event_lineage WHERE action = 'merge' AND reverted_by_lineage_id IS NOT NULL").fetchone()[0]
+    by_actor = ", ".join(f"{row[0]} {row[1]}" for row in conn.execute("SELECT performed_by, COUNT(*) FROM event_lineage WHERE action = 'merge' GROUP BY 1 ORDER BY 1"))
+    typer.echo(f"events merged into another: {merged}; merges in event_lineage: {merges} ({by_actor or 'none'}), reverted: {reverted}")
+    proposals = ", ".join(f"{row[0]} {row[1]}" for row in conn.execute("SELECT status, COUNT(*) FROM merge_proposal GROUP BY 1 ORDER BY 1"))
+    typer.echo(f"merge proposals: {proposals or 'none'}")
+    ems_events = conn.execute("SELECT COUNT(DISTINCT event_id) FROM source_record WHERE source_id = 'copernicus' AND event_id IS NOT NULL").fetchone()[0]
+    ems_unresolved = conn.execute("SELECT COUNT(*) FROM source_record WHERE source_id = 'copernicus' AND event_id IS NULL").fetchone()[0]
+    typer.echo(f"events with a Copernicus EMS activation: {ems_events}; copernicus records without an event (must be 0): {ems_unresolved}")
     footprints = conn.execute("SELECT COUNT(*) FROM event_geometry WHERE role = 'footprint'").fetchone()[0]
     typer.echo(f"event_geometry rows: {_count(conn, 'event_geometry')} (footprints: {footprints})")
     typer.echo(f"files ingested (snapshot_ingest): {_count(conn, 'snapshot_ingest')}; local snapshots pending: {len(snapshots.pending(conn))}")
@@ -315,6 +336,47 @@ def report_volume(
         f"({result['snapshot_files']} files, {result['commits']} commits); per day={result['per_day_mb']} MB; "
         f"per year={result['per_year_mb']} MB; verdict={result['verdict']}"
     )
+
+
+# ----------------------------------------------------------------------------- labels and evaluation
+@labels_app.command("candidates")
+def labels_candidates(
+    days: int = typer.Option(30, "--days", help="Pairs among records observed in the last N days."),
+    out: Optional[Path] = typer.Option(None, "--out", help=f"Default: {config.LABEL_CANDIDATES_CSV}"),
+) -> None:
+    """Write every cross-source pair that blocks (same hazard class, within R and T) with its evidence and an empty `same_event` column.
+
+    Copy the file to data/labels/merge_pairs.csv and fill `same_event` with yes or no by hand; `eww eval merges` reads it.
+    """
+    conn = _open()
+    rows = labels.candidate_pairs(conn, days)
+    path = labels.write_candidates(rows, out)
+    verdicts = {}
+    for row in rows:
+        verdicts[row["pipeline"]] = verdicts.get(row["pipeline"], 0) + 1
+    typer.echo(
+        f"written {path}: {len(rows)} candidate pairs, {sum(1 for r in rows if r['linked'] == 'yes')} carrying a deterministic key; "
+        "pipeline verdicts: " + (", ".join(f"{k}={v}" for k, v in sorted(verdicts.items())) or "none")
+    )
+
+
+@eval_app.command("merges")
+def eval_merges(
+    pairs: Optional[Path] = typer.Option(None, "--pairs", help=f"Default: {config.LABEL_PAIRS_CSV}"),
+) -> None:
+    """Precision and recall of the auto-merge rule against the hand labels; lists every true pair neither merged nor proposed.
+
+    Exit code 1 when a labelled non-pair sits on one event (a false merge) or a true pair is missing altogether.
+    """
+    path = pairs or config.LABEL_PAIRS_CSV
+    if not path.exists():
+        typer.echo(f"{path} does not exist; run `eww labels candidates`, copy the file there and fill `same_event`", err=True)
+        raise typer.Exit(code=2)
+    conn = _open()
+    result = labels.evaluate(conn, labels.read_pairs(path))
+    typer.echo(labels.render_evaluation(result))
+    if result["false_merges"] or result["missed"]:
+        raise typer.Exit(code=1)
 
 
 # ----------------------------------------------------------------------------- scheduling hints

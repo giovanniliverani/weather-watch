@@ -19,14 +19,17 @@ from datetime import datetime
 
 import httpx
 
-from eww import config
+from eww import config, geo
 from eww import http as http_mod
+from eww import severity as severity_mod
 from eww.collectors.base import FetchResult
 from eww.clock import normalise_iso, rfc2822_to_iso
 
 log = logging.getLogger(__name__)
 
 SOURCE_ID = "gdacs"
+LINK_TARGETS: tuple[str, ...] = ()  # GDACS points at no other feed; EONET and Copernicus point at it
+FOOTPRINT_PRECISION = "admin1"  # a bounding box is an area, not a surveyed outline
 GDACS_NS = "http://www.gdacs.org"
 GEORSS_NS = "http://www.georss.org/georss"
 
@@ -208,9 +211,21 @@ def _point(item: dict) -> tuple[float | None, float | None]:
 
 # ----------------------------------------------------------------------------- derived, from a stored payload
 def severity(payload: dict) -> tuple[str | None, float | None]:
-    """('Orange', 0.66): the alert level as GDACS says it, and its normalised score."""
-    level = ((payload.get("properties") or {}).get("alertlevel") or "").strip().title() or None
-    return level, config.GDACS_SEVERITY.get(level) if level else None
+    """('Orange', 0.675): the alert level as GDACS says it, and its normalised score (eww.severity)."""
+    return severity_mod.gdacs_severity(payload.get("properties") or {})
+
+
+def linked_ids(payload: dict) -> list[tuple[str, str]]:
+    """GDACS references no other feed."""
+    return []
+
+
+def storm_name(payload: dict) -> str | None:
+    """The named storm ('NORBERT-26') for tropical cyclones; None for every other type or an unnamed one."""
+    props = payload.get("properties") or {}
+    if str(props.get("eventtype") or "").upper() != "TC":
+        return None
+    return (props.get("eventname") or "").strip() or None
 
 
 def country_iso3(payload: dict) -> str | None:
@@ -235,5 +250,7 @@ def detail_url(payload: dict) -> str | None:
 
 
 def footprint(payload: dict) -> dict | None:
-    """GDACS SEARCH gives points and bounding boxes only; a bbox is not a footprint."""
-    return None
+    """The feature's bbox as a Polygon when it is a real box. Every bbox the SEARCH API returned on
+    2026-09-17 (2,405 records) was a degenerate point, so in practice GDACS supplies no footprints;
+    the outline behind `url.geometry` would cost one request per event and stays out of the spine."""
+    return geo.bbox_polygon(payload.get("bbox"))

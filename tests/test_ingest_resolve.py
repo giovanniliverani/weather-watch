@@ -3,7 +3,7 @@
 import copy
 import json
 
-from eww import ingest, resolve, snapshots
+from eww import ingest, resolve, severity, snapshots
 from tests.conftest import envelope, eonet_events, gdacs_features
 
 EONET_RECORDS = 1 + 1 + 2 + 9  # wildfire, flood polygon, storm with two geometry entries, nine synthetic events
@@ -80,14 +80,15 @@ def test_resolve_creates_each_event_once(conn, data_dir):
     storm = conn.execute("SELECT e.* FROM event e JOIN source_record r ON r.event_id = e.event_id WHERE r.external_id = 'EONET_23611' LIMIT 1").fetchone()
     assert storm["hazard_type"] == "tropical_cyclone"
     assert count(conn, "SELECT COUNT(*) FROM source_record WHERE event_id = ?", storm["event_id"]) == 2
-    assert storm["severity_score"] == 0.4
+    assert storm["severity_label"] == "45 kts"  # the latest geometry entry
+    assert storm["severity_score"] == severity.scale_magnitude(45, "kts") == 0.451
 
     flood = conn.execute("SELECT e.* FROM event e JOIN source_record r ON r.event_id = e.event_id WHERE r.external_id = 'EONET_24267'").fetchone()
     assert flood["country_iso3"] == "HRV"
     assert abs(flood["centroid_lat"] - 43.51) < 0.2
 
     gdacs_flood = conn.execute("SELECT e.* FROM event e JOIN source_record r ON r.event_id = e.event_id WHERE r.source_id = 'gdacs' AND r.hazard_type = 'flood'").fetchone()
-    assert (gdacs_flood["severity_label"], gdacs_flood["severity_score"], gdacs_flood["country_iso3"]) == ("Orange", 0.66, "CHN")
+    assert (gdacs_flood["severity_label"], gdacs_flood["severity_score"], gdacs_flood["country_iso3"]) == ("Orange", 0.675, "CHN")
     cyclone = conn.execute("SELECT e.* FROM event e JOIN source_record r ON r.event_id = e.event_id WHERE r.source_id = 'gdacs' AND r.hazard_type = 'tropical_cyclone'").fetchone()
     assert cyclone["status"] == "active" and cyclone["ended_at"] is None
 

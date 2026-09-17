@@ -16,11 +16,14 @@ Thumbs.db
 .vscode/
 *.log
 
-# Extreme Weather Watch: local data (SQLite, raw snapshots, run logs) and test/export artefacts
-/data/
+# Extreme Weather Watch: local data (SQLite, raw snapshots, run logs) and test/export artefacts.
+# data/labels/ is the exception: the hand-labelled merge pairs are versioned (M2 exit criterion 1).
+/data/*
+!/data/labels/
 /data-branch/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
 .pytest_cache/
 /events.geojson
+/data/labels/merge_candidates.csv

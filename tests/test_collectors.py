@@ -57,7 +57,7 @@ def test_gdacs_normalise_current_cyclone_has_no_end():
 
 def test_gdacs_derived_helpers():
     feature = by_type(gdacs_features(), "FL")
-    assert gdacs.severity(feature) == ("Orange", 0.66)
+    assert gdacs.severity(feature) == ("Orange", 0.675)  # Orange band 0.66 + episodealertscore 1.5 of 3.0 over a 0.03 span
     assert gdacs.country_iso3(feature) == "CHN"
     assert gdacs.detail_url(feature).startswith("https://www.gdacs.org/report.aspx?")
     assert gdacs.footprint(feature) is None
@@ -80,7 +80,10 @@ def test_gdacs_rss_item_becomes_feature():
     assert rec["started_at"] == "2026-09-16T00:00:00Z"
     assert rec["ended_at"] is None  # iscurrent true
     assert feature["properties"]["source_format"] == "rss"
-    assert gdacs.severity(feature) == ("Green", 0.33)
+    label, score = gdacs.severity(feature)
+    assert label == "Green" and 0.33 <= score < 0.36
+    assert gdacs.footprint(feature) is None  # a point bbox is not a footprint
+    assert gdacs.linked_ids(feature) == []
     assert gdacs.country_iso3(feature) == "AUS"
     assert gdacs.detail_url(feature) == "https://www.gdacs.org/report.aspx?eventtype=WF&eventid=1032032"
 
@@ -103,7 +106,9 @@ def test_eonet_normalise_wildfire_point():
     assert pytest.approx(rec["lon"], abs=1e-6) == 16.525371955075
     assert pytest.approx(rec["lat"], abs=1e-6) == -19.219845995937
     assert rec["payload"]["geometry"] == event["geometry"]
-    assert eonet.severity(rec["payload"]) == ("5747 hectare", 0.4)
+    assert eonet.severity(rec["payload"]) == ("5747 hectare", 0.34)  # just above the 5,000 ha Green point
+    assert eonet.linked_ids(rec["payload"]) == [("gdacs", "1031934")]
+    assert eonet.storm_name(rec["payload"]) is None
     assert eonet.country_iso3(rec["payload"]) == "NAM"
     assert eonet.detail_url(rec["payload"]) == event["link"]
 
@@ -130,7 +135,8 @@ def test_eonet_one_record_per_geometry_entry():
     assert all(len(r["payload"]["geometry"]) == 1 for r in records)
     assert records[0]["ended_at"] is None or storm["closed"] is not None
     label, score = eonet.severity(records[0]["payload"])
-    assert score == 0.4 and label.endswith("kts")
+    assert label == "40 kts" and 0.33 <= score < 0.66  # a 40 kt tropical storm sits between Green and Orange
+    assert eonet.storm_name(records[0]["payload"]) == "Hurricane Karina"
     assert eonet.country_iso3(records[0]["payload"]) is None
 
 

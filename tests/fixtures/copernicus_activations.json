@@ -1,0 +1,152 @@
+{
+ "count": 9,
+ "next": null,
+ "previous": null,
+ "results": [
+  {
+   "code": "EMSR932",
+   "countries": [
+    "Spain"
+   ],
+   "eventTime": "2026-09-15T13:00:00",
+   "name": "Wildfire in Huelva Province, Spain",
+   "centroid": "POINT (-7.213497 37.789542)",
+   "activationTime": "2026-09-15T16:58:00",
+   "category": "Wildfire",
+   "lastUpdate": "2026-09-16T21:06:28.015945",
+   "closed": false,
+   "gdacsId": null,
+   "n_aois": 1,
+   "n_products": 1
+  },
+  {
+   "code": "EMSR927",
+   "countries": [
+    "Nepal"
+   ],
+   "eventTime": "2026-08-25T22:00:00",
+   "name": "Flood in Nepal",
+   "centroid": "POINT (85.35376299877846 28.212231792029492)",
+   "activationTime": "2026-08-26T09:53:00",
+   "category": "Flood",
+   "lastUpdate": "2026-09-14T07:16:09.150534",
+   "closed": true,
+   "gdacsId": "FL1104124",
+   "n_aois": 6,
+   "n_products": 6
+  },
+  {
+   "code": "EMSR916",
+   "countries": [
+    "Colombia"
+   ],
+   "eventTime": "2026-08-10T12:30:00",
+   "name": "Earthquake in Colombia",
+   "centroid": "POINT (-76.25745949698948 3.873912990109663)",
+   "activationTime": "2026-08-10T17:13:00",
+   "category": "Earthquake",
+   "lastUpdate": "2026-08-17T09:59:55.234251",
+   "closed": true,
+   "gdacsId": "EQ1557236",
+   "n_aois": 7,
+   "n_products": 8
+  },
+  {
+   "code": "EMSR912",
+   "countries": [
+    "Guatemala"
+   ],
+   "eventTime": "2026-08-02T23:00:00",
+   "name": "Volcano eruption in Guatemala",
+   "centroid": "POINT (-90.90488258150785 14.467714085412526)",
+   "activationTime": "2026-08-05T08:36:00",
+   "category": "Volcanic activity",
+   "lastUpdate": "2026-08-17T15:43:51.377130",
+   "closed": true,
+   "gdacsId": "VO1000145",
+   "n_aois": 2,
+   "n_products": 3
+  },
+  {
+   "code": "EMSR872",
+   "countries": [
+    "Micronesia"
+   ],
+   "eventTime": "2026-04-08T22:00:00",
+   "name": "Tropical Cyclone Sinlaku in Micronesia",
+   "centroid": "POINT (151.75069008400766 7.375840981096835)",
+   "activationTime": "2026-04-21T14:34:00",
+   "category": "Storm",
+   "lastUpdate": "2026-05-19T10:47:37.650194",
+   "closed": true,
+   "gdacsId": "TC1001270",
+   "n_aois": 19,
+   "n_products": 18
+  },
+  {
+   "code": "EMSR930",
+   "countries": [
+    "Italy"
+   ],
+   "eventTime": "2026-09-02T13:00:00",
+   "name": "Storm in Basilicata, Italy.",
+   "centroid": "POINT (16.688524454669405 40.230673340667245)",
+   "activationTime": "2026-09-07T14:44:00",
+   "category": "Storm",
+   "lastUpdate": "2026-09-15T14:01:14.382140",
+   "closed": true,
+   "gdacsId": null,
+   "n_aois": 2,
+   "n_products": 3
+  },
+  {
+   "code": "EMSR751",
+   "countries": [
+    "Italy"
+   ],
+   "eventTime": "2024-08-27T12:00:00",
+   "name": "Mass movement in Campania Region, Italy",
+   "centroid": "POINT (14.524994 40.964583)",
+   "activationTime": "2024-09-01T11:24:00",
+   "category": "Mass movement",
+   "lastUpdate": "2024-09-06T08:09:20.958052",
+   "closed": true,
+   "gdacsId": null,
+   "n_aois": 1,
+   "n_products": 2
+  },
+  {
+   "code": "EMSR877",
+   "countries": [
+    "Austria"
+   ],
+   "eventTime": "2026-06-11T12:00:00",
+   "name": "Public Event in Burgenland, Austria",
+   "centroid": "POINT (17.093001327819394 47.91828989150362)",
+   "activationTime": "2026-05-26T14:32:00",
+   "category": "Other",
+   "lastUpdate": "2026-06-16T13:40:32.152008",
+   "closed": true,
+   "gdacsId": null,
+   "n_aois": 1,
+   "n_products": 6
+  },
+  {
+   "code": "EMSR926",
+   "countries": [
+    "Latvia",
+    "Lithuania"
+   ],
+   "eventTime": "2026-08-21T21:00:00",
+   "name": "Flood in Latvia and Lithuania",
+   "centroid": "POINT (22.205348517547684 56.87281291182868)",
+   "activationTime": "2026-08-22T15:45:00",
+   "category": "Flood",
+   "lastUpdate": "2026-08-28T07:27:36.345506",
+   "closed": true,
+   "gdacsId": null,
+   "n_aois": 4,
+   "n_products": 9
+  }
+ ]
+}

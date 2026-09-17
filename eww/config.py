@@ -41,7 +41,7 @@ DEFAULT_VIEWER_DAYS = 14
 SNAPSHOT_FORMAT = "eww.snapshot/1"  # the envelope written by collectors and replayed by ingest
 
 # --------------------------------------------------------------------------- spine, data branch, heartbeat
-SPINE_SOURCES = ["gdacs", "eonet"]  # `eww collect --all-spine`; copernicus joins in M2
+SPINE_SOURCES = ["gdacs", "eonet", "copernicus"]  # `eww collect --all-spine`, what GitHub Actions runs
 DATA_BRANCH = "data"  # orphan branch holding snapshots/ and runs/, written by .github/workflows/collect.yml
 GIT_REMOTE = "origin"
 HEARTBEAT_GRACE_MINUTES = 45  # a run serves its 3-hour slot only if it started within this many minutes
@@ -96,6 +96,12 @@ GDACS_HAZARD = {
     "TS": "tsunami",
 }
 GDACS_SEVERITY = {"Green": 0.33, "Orange": 0.66, "Red": 1.0}
+# Tie-break inside a band. In the SEARCH API `alertscore` is quantised to 1/2/3 (one value per
+# band, observed 2026-09-17 over 2,405 records), so the continuous `episodealertscore` (0 to 2.5
+# observed) breaks ties, and `alertscore` only when the episode score is missing. The increment
+# never reaches the next band: Green stays in [0.33, 0.36), Orange in [0.66, 0.69), Red is 1.0.
+GDACS_ALERTSCORE_MAX = 3.0
+GDACS_TIEBREAK_SPAN = 0.03
 
 # --------------------------------------------------------------------------- EONET
 # https://eonet.gsfc.nasa.gov/docs/v3 (read 2026-09-16): `status`, `days`, `start`/`end`
@@ -129,7 +135,17 @@ EONET_HAZARD = {
 }
 EONET_STORM_TITLE_RE = re.compile(r"hurricane|typhoon|cyclone|tropical", re.IGNORECASE)
 EONET_COLD_TITLE_RE = re.compile(r"cold|freez", re.IGNORECASE)
-EONET_SEVERITY = 0.4
+EONET_SEVERITY = 0.4  # a geometry entry without a magnitude
+# magnitudeValue scaled per unit: piecewise-linear through these (value, score) points, clamped to
+# [EONET_SEVERITY_FLOOR, 1.0]. Knots follow the Saffir-Simpson steps (34 kt tropical storm, 64 kt
+# hurricane, 96 kt major hurricane). Hectares put 5,000 ha, the smallest wildfire GDACS mirrors
+# into EONET (observed minimum 5,001 ha on 2026-09-17), at Green. Acres convert to hectares first.
+EONET_SEVERITY_FLOOR = 0.1
+EONET_MAGNITUDE_SCALE = {
+    "kts": [(0.0, 0.1), (34.0, 0.33), (64.0, 0.66), (96.0, 1.0)],
+    "hectare": [(0.0, 0.1), (5000.0, 0.33), (30000.0, 0.66), (100000.0, 1.0)],
+}
+EONET_UNIT_TO_HECTARE = {"acres": 0.404686, "acre": 0.404686, "ha": 1.0, "hectares": 1.0}
 # EONET Polygon rings arrive as [lat, lon] pairs, the reverse of GeoJSON order. Verified
 # 2026-09-16: 39 of 40 GDACS-sourced flood polygons land on GDACS's own point only after
 # swapping (the 40th sits on the lat=lon diagonal). Point geometries are in [lon, lat] order.
@@ -172,6 +188,75 @@ COUNTRY_NAME_ALIASES = {
     "East Timor": "TLS",
 }
 
+# --------------------------------------------------------------------------- Copernicus EMS
+# Rapid Mapping activations, read 2026-09-17: GET public-activations-info/ pages with `limit` and
+# `offset` (count, next, previous, results); 265 activations back to 2023-03 in 3 pages of 100.
+# Item fields: code, name, category, countries (names), centroid (WKT "POINT (lon lat)"),
+# eventTime, activationTime, lastUpdate (naive UTC), closed (bool), gdacsId ("FL1104124": GDACS
+# type code + eventid, set on 76 of 265), n_aois, n_products. No date filter, so fetch() pages
+# through the whole list and keeps what falls in the window or is still open.
+COPERNICUS_ACTIVATIONS_URL = "https://rapidmapping.emergency.copernicus.eu/backend/dashboard-api/public-activations-info/"
+COPERNICUS_PAGE_SIZE = 100
+COPERNICUS_MAX_PAGES = 50  # safety stop; 3 pages cover the whole public list today
+COPERNICUS_ACTIVATION_URL = "https://rapidmapping.emergency.copernicus.eu/{code}"
+COPERNICUS_ATTRIBUTION = "Copernicus Emergency Management Service (© {year} European Union), {code}"
+COPERNICUS_HAZARD = {  # categories observed 2026-09-17, plus the plausible ones marked "not seen"
+    "Wildfire": "wildfire",
+    "Flood": "flood",
+    "Storm": "severe_storm",  # tropical_cyclone when the name matches STORM_TITLE_RE
+    "Earthquake": "earthquake",
+    "Mass movement": "landslide",
+    "Volcanic activity": "volcano",
+    "Drought": "drought",  # not seen
+    "Tsunami": "tsunami",  # not seen
+}
+# Activations that are not natural hazards yield no source_record; the raw item stays in the snapshot.
+COPERNICUS_SKIP_CATEGORIES = {"Other", "Transport accident", "Industrial accident"}
+STORM_TITLE_RE = EONET_STORM_TITLE_RE
+
+# --------------------------------------------------------------------------- identity (docs/architecture.md §3)
+# Unresolved records resolve in this source order, so the feed other feeds point at (GDACS) exists first.
+RESOLVE_SOURCE_ORDER = ["gdacs", "eonet", "copernicus"]
+# Cross-source blocking happens inside a hazard class; the two storm types share one, 'other' never blocks.
+HAZARD_CLASS = {h: h for h in HAZARD_TYPES if h != "other"} | {"tropical_cyclone": "storm", "severe_storm": "storm"}
+# Blocking radius R (km) and window T (days) per hazard type of the incoming record.
+BLOCKING = {
+    "tropical_cyclone": (500.0, 10.0),
+    "flood": (250.0, 5.0),
+    "wildfire": (100.0, 7.0),
+    "severe_storm": (200.0, 3.0),
+    "drought": (500.0, 30.0),
+    "heatwave": (500.0, 10.0),
+    "coldwave": (500.0, 10.0),
+    "landslide": (50.0, 3.0),
+    "volcano": (50.0, 30.0),
+    "earthquake": (150.0, 2.0),
+    "tsunami": (500.0, 2.0),
+}
+# A named storm blocks by name inside its class and window ("names decide", §3): a track's first
+# point can be thousands of km from the other feed's current position, so its radius is basin-scale.
+# Unnamed storms and every other hazard block with the radius above.
+STORM_NAME_BLOCK_KM = 5000.0
+AUTO_MERGE_THRESHOLD = 0.90  # at or above: merge automatically (logged in event_lineage, reversible)
+PROPOSAL_THRESHOLD = 0.60  # at or above: create the event and write a merge_proposal for review
+SCORE_WEIGHTS = {"spatial": 0.5, "temporal": 0.3, "text": 0.2}
+SCORE_GLIDE_EQUAL = 1.0
+SCORE_STORM_NAME_EQUAL = 0.95
+TITLE_SIMILARITY = "jaccard"  # M3 adds "embedding"; eww.matching.title_similarity is the hook
+TITLE_STOPWORDS = {"in", "of", "the", "and", "a", "an", "at", "on", "near", "region", "province", "area", "island"}
+# Removed before comparing storm names, so "Tropical Cyclone NORBERT-26" equals "Hurricane Norbert".
+STORM_WORDS = {"tropical", "cyclone", "hurricane", "typhoon", "storm", "depression", "severe", "super", "post", "subtropical", "remnants", "of", "in", "the"}
+STORM_NAME_YEAR_SUFFIX_RE = re.compile(r"-\d{2}$")
+# Whose latest record supplies an event's title, hazard type, centroid and severity label (first source present).
+PRIMARY_SOURCE_ORDER = ["gdacs", "copernicus", "eonet"]
+EMS_SEVERITY_FLOOR = 0.66  # an event with a Copernicus activation scores at least this
+REVIEW_RECENT_MERGES = 50  # rows in the Review tab's merge list
+
+# --------------------------------------------------------------------------- labels (M2 exit criteria 1 and 2)
+LABELS_DIR = DATA_DIR / "labels"
+LABEL_CANDIDATES_CSV = LABELS_DIR / "merge_candidates.csv"  # written by `eww labels candidates`
+LABEL_PAIRS_CSV = LABELS_DIR / "merge_pairs.csv"  # the same rows with `same_event` filled by hand
+
 # --------------------------------------------------------------------------- seed rows for `source`
 SOURCES = {
     "gdacs": {
@@ -185,6 +270,12 @@ SOURCES = {
         "display_name": "NASA Earth Observatory Natural Event Tracker (EONET)",
         "terms_url": "https://eonet.gsfc.nasa.gov/what-is-eonet",
         "attribution": "NASA Earth Observatory Natural Event Tracker (EONET), public domain",
+    },
+    "copernicus": {
+        "kind": "authority",
+        "display_name": "Copernicus Emergency Management Service (CEMS), Rapid Mapping activations",
+        "terms_url": "https://www.copernicus.eu/en/access-data/copyright-and-licences",
+        "attribution": "Copernicus Emergency Management Service (© European Union)",  # per activation: COPERNICUS_ATTRIBUTION
     },
 }
 

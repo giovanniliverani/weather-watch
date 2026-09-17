@@ -1,54 +1,128 @@
 """Resolve: source_record -> event. `create_event()` is the only INSERT INTO event in the codebase.
 
-M0 form of the identity rules in docs/architecture.md §3: a record joins the live event that
-already carries its GLIDE number, else the event of a sibling record with the same
-(source_id, external_id), else a new event. No cross-source scoring yet (that is M2).
+The identity rules of docs/architecture.md §3 ("How identity is decided"), applied to every
+unresolved record in config.RESOLVE_SOURCE_ORDER (GDACS before the feeds that point at it):
 
-After attaching, `refresh_event()` recomputes every derived column of the event from all of
-its records (window, status, severity, centroid, country, GLIDE) and keeps the primary Point
-and any footprint polygons in event_geometry in step. It only writes when something changed,
-so running `eww resolve` twice is a no-op the second time.
+1. GLIDE: the live event carrying the record's GLIDE number, unless that event already holds a
+   record of the same source under a different external id (GDACS gave two cyclones one GLIDE on
+   2026-09-17; the source's own identity wins over the shared number).
+2. Sibling: the event of an earlier record with the same (source_id, external_id): a new GDACS
+   episode, a new EONET geometry entry. The event is then re-scored (step 4) with the new record in
+   its track, because a storm's first point may be far from the other feed's current position and a
+   GDACS depression gets its name in a later episode.
+3. Deterministic cross-source key, both ways: the record's `linked_ids()` (Copernicus `gdacsId`,
+   the GDACS report URL among EONET's sources) name an event holding that GDACS eventid, or an
+   already-resolved record names this one (LinkIndex).
+4. Blocking and scoring (eww.matching): same hazard class, |Δstart| <= T, distance <= R, other
+   sources only, never a pair the sources themselves keep apart (key_conflict). score >=
+   config.AUTO_MERGE_THRESHOLD: merge at once, unless the two are differently named storms or a
+   person has undone that very merge before; >= config.PROPOSAL_THRESHOLD: write a merge_proposal.
+
+Steps 1 to 3 attach without a lineage row: they follow what the sources themselves assert. Step 4
+is the pipeline's inference, so it goes through eww.merge, leaves an event_lineage row and can be
+undone in the Review tab. Afterwards eww.events.refresh_event() recomputes every touched event
+from its records; running `eww resolve` twice is a no-op the second time.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import timedelta
 
-from eww import collectors, config
+from eww import collectors, config, matching
+from eww import merge as merge_mod
 from eww.clock import now_iso, now_utc, to_iso
+from eww.events import canonical_event_id, derive, event_records, payload_of, refresh_event  # noqa: F401  (re-exported)
 from eww.ids import new_id
 
 log = logging.getLogger(__name__)
+
+ACTIONS = ("created", "attached", "glide", "linked", "merged", "proposed")
 
 
 @dataclass
 class ResolveStats:
     records_resolved: int = 0
-    events_created: int = 0
-    events_attached: int = 0
+    events_created: int = 0  # event rows inserted, including those merged or proposed straight away
+    events_attached: int = 0  # attached to an existing event by GLIDE, sibling or deterministic key
+    events_linked: int = 0  # of which through a deterministic cross-source key
+    events_merged: int = 0  # merged automatically (score >= AUTO_MERGE_THRESHOLD), at creation or on re-scoring
+    proposals_created: int = 0
     events_refreshed: int = 0
     events_changed: int = 0
+
+
+@dataclass
+class Outcome:
+    event_id: str  # the live event the record ended up on
+    action: str  # one of ACTIONS
+    score: float | None = None
+    created_event_id: str | None = None  # for 'merged': the row created and folded into event_id
+    follow_up: str | None = None  # 'merged' | 'proposed' when re-scoring after a sibling attach did something
+
+
+class LinkIndex:
+    """(source_id, external_id) -> event_id for every deterministic key an already-resolved record carries.
+
+    Lets a GDACS record that arrives after its EONET or Copernicus mirror find the event the mirror
+    created. Built once per resolve() pass and kept current as records are attached.
+    """
+
+    def __init__(self) -> None:
+        self._map: dict[tuple[str, str], str] = {}
+
+    @classmethod
+    def build(cls, conn: sqlite3.Connection) -> "LinkIndex":
+        index = cls()
+        if not collectors.LINKING_SOURCES:
+            return index
+        marks = ", ".join("?" * len(collectors.LINKING_SOURCES))
+        rows = conn.execute(
+            f"SELECT source_id, event_id, payload FROM source_record WHERE event_id IS NOT NULL AND source_id IN ({marks}) "
+            "ORDER BY observed_at, source_record_id",
+            collectors.LINKING_SOURCES,
+        )
+        for row in rows:
+            index.add_record(row["source_id"], payload_of(row), row["event_id"])
+        return index
+
+    def add_record(self, source_id: str, payload: dict, event_id: str) -> None:
+        for key in collectors.get(source_id).linked_ids(payload):
+            self._map.setdefault((key[0], str(key[1])), event_id)
+
+    def lookup(self, source_id: str, external_id: str) -> str | None:
+        return self._map.get((source_id, str(external_id)))
+
+    def __len__(self) -> int:
+        return len(self._map)
 
 
 def resolve(conn: sqlite3.Connection, *, refresh_days: int | None = 30) -> ResolveStats:
     stats = ResolveStats()
     touched: set[str] = set()
-    unresolved = conn.execute(
-        "SELECT * FROM source_record WHERE event_id IS NULL ORDER BY source_id, external_id, observed_at, source_record_id"
-    ).fetchall()
+    unresolved = conn.execute("SELECT * FROM source_record WHERE event_id IS NULL").fetchall()
+    order = {source_id: i for i, source_id in enumerate(config.RESOLVE_SOURCE_ORDER)}
+    unresolved.sort(key=lambda r: (order.get(r["source_id"], len(order)), r["source_id"], r["external_id"], r["observed_at"], r["source_record_id"]))
+    links = LinkIndex.build(conn)
     with conn:
         for rec in unresolved:
-            event_id, created = resolve_record(conn, rec)
-            touched.add(event_id)
+            outcome = resolve_record(conn, rec, links)
+            touched.add(outcome.event_id)
+            if outcome.created_event_id:
+                touched.add(outcome.created_event_id)
             stats.records_resolved += 1
-            if created:
+            if outcome.action in ("created", "merged", "proposed"):
                 stats.events_created += 1
             else:
                 stats.events_attached += 1
+            if outcome.action == "linked":
+                stats.events_linked += 1
+            if outcome.action == "merged" or outcome.follow_up == "merged":
+                stats.events_merged += 1
+            if outcome.action == "proposed" or outcome.follow_up == "proposed":
+                stats.proposals_created += 1
     if refresh_days is not None:
         since = to_iso(now_utc() - timedelta(days=refresh_days))
         for row in conn.execute(
@@ -61,32 +135,34 @@ def resolve(conn: sqlite3.Connection, *, refresh_days: int | None = 30) -> Resol
             if refresh_event(conn, event_id):
                 stats.events_changed += 1
     log.info(
-        "resolve records=%d created=%d attached=%d refreshed=%d changed=%d",
-        stats.records_resolved, stats.events_created, stats.events_attached, stats.events_refreshed, stats.events_changed,
+        "resolve records=%d created=%d attached=%d linked=%d merged=%d proposed=%d refreshed=%d changed=%d",
+        stats.records_resolved, stats.events_created, stats.events_attached, stats.events_linked, stats.events_merged,
+        stats.proposals_created, stats.events_refreshed, stats.events_changed,
     )
     return stats
 
 
-def canonical_event_id(conn: sqlite3.Connection, event_id: str) -> str:
-    """Follow merged_into_event_id pointers to the live event."""
-    seen = {event_id}
-    while True:
-        row = conn.execute("SELECT merged_into_event_id FROM event WHERE event_id = ?", (event_id,)).fetchone()
-        if row is None or row[0] is None or row[0] in seen:
-            return event_id
-        event_id = row[0]
-        seen.add(event_id)
+def resolve_record(conn: sqlite3.Connection, rec: sqlite3.Row, links: LinkIndex | None = None) -> Outcome:
+    """Attach one unresolved record to an event, creating (and possibly merging) the event if needed."""
+    links = links if links is not None else LinkIndex.build(conn)
+    payload = payload_of(rec)
+    collector = collectors.get(rec["source_id"])
 
-
-def resolve_record(conn: sqlite3.Connection, rec: sqlite3.Row) -> tuple[str, bool]:
-    """Attach one unresolved record to an event, creating the event if needed. Returns (event_id, created)."""
+    # 1. GLIDE, unless the source itself keeps this record apart from the event holding the number
     if rec["glide_number"]:
         row = conn.execute(
             "SELECT event_id FROM event WHERE glide_number = ? AND merged_into_event_id IS NULL", (rec["glide_number"],)
         ).fetchone()
         if row:
-            _attach(conn, rec["source_record_id"], row["event_id"])
-            return row["event_id"], False
+            clash = conn.execute(
+                "SELECT 1 FROM source_record WHERE event_id = ? AND source_id = ? AND external_id <> ? LIMIT 1",
+                (row["event_id"], rec["source_id"], rec["external_id"]),
+            ).fetchone()
+            if clash is None:
+                return _finish(conn, rec, payload, row["event_id"], "glide", links)
+            log.info("glide %s shared by two %s ids; %s stays apart from event %s", rec["glide_number"], rec["source_id"], rec["external_id"], row["event_id"])
+
+    # 2. an earlier record of the same feed item, then a re-score with the track grown by one point
     row = conn.execute(
         """
         SELECT event_id FROM source_record
@@ -96,12 +172,97 @@ def resolve_record(conn: sqlite3.Connection, rec: sqlite3.Row) -> tuple[str, boo
         (rec["source_id"], rec["external_id"]),
     ).fetchone()
     if row:
-        event_id = canonical_event_id(conn, row["event_id"])
-        _attach(conn, rec["source_record_id"], event_id)
-        return event_id, False
+        outcome = _finish(conn, rec, payload, canonical_event_id(conn, row["event_id"]), "attached", links)
+        follow_up = _rescore_event(conn, outcome.event_id, links)
+        if follow_up is not None:
+            outcome.follow_up, outcome.score = follow_up
+            outcome.event_id = canonical_event_id(conn, outcome.event_id)
+        return outcome
+
+    # 3. deterministic cross-source keys, forward (this record names another feed's id) and reverse
+    for source_id, external_id in collector.linked_ids(payload):
+        row = conn.execute(
+            """
+            SELECT event_id FROM source_record WHERE source_id = ? AND external_id = ? AND event_id IS NOT NULL
+            ORDER BY observed_at DESC, source_record_id DESC LIMIT 1
+            """,
+            (source_id, str(external_id)),
+        ).fetchone()
+        if row:
+            return _finish(conn, rec, payload, canonical_event_id(conn, row["event_id"]), "linked", links)
+    reverse = links.lookup(rec["source_id"], rec["external_id"])
+    if reverse:
+        return _finish(conn, rec, payload, canonical_event_id(conn, reverse), "linked", links)
+
+    # 4. blocking and scoring against events other feeds created
+    entity = matching.entity_from_record(rec)
+    best = _best_candidate(conn, entity)
     event_id = create_event(conn, rec)
     _attach(conn, rec["source_record_id"], event_id)
-    return event_id, True
+    decision = _decide(conn, event_id, entity, best) if best else None
+    if decision == "merged":
+        candidate = best[0]
+        links.add_record(rec["source_id"], payload, candidate["event_id"])
+        return Outcome(candidate["event_id"], "merged", best[1].score, created_event_id=event_id)
+    links.add_record(rec["source_id"], payload, event_id)
+    if decision == "proposed":
+        return Outcome(event_id, "proposed", best[1].score)
+    return Outcome(event_id, "created", best[1].score if best else None)
+
+
+def _best_candidate(conn: sqlite3.Connection, entity: matching.Entity, *, exclude=()) -> tuple[sqlite3.Row, matching.Score, matching.Entity] | None:
+    best: tuple[sqlite3.Row, matching.Score, matching.Entity] | None = None
+    for candidate, other in matching.candidate_events(conn, entity, exclude_event_ids=exclude):
+        if matching.key_conflict(entity, other):  # the sources themselves keep these two apart
+            log.debug("skip candidate %s: conflicting deterministic keys", candidate["event_id"])
+            continue
+        scored = matching.score(entity, other)
+        if best is None or scored.score > best[1].score:
+            best = (candidate, scored, other)
+    return best
+
+
+def _decide(conn: sqlite3.Connection, event_id: str, entity: matching.Entity, best) -> str | None:
+    """Merge `event_id` into the best candidate, propose the pair, or do nothing. Returns what happened."""
+    candidate, scored, other = best
+    if scored.score < config.PROPOSAL_THRESHOLD:
+        return None
+    if merge_mod.pair_reverted_by_human(conn, event_id, candidate["event_id"]):
+        log.info("event %s ~ %s: a person reverted this merge before; leaving it alone", event_id, candidate["event_id"])
+        return None
+    evidence = matching.evidence(entity, other, scored)
+    if scored.score >= config.AUTO_MERGE_THRESHOLD and not scored.names_differ:
+        merge_mod.merge(conn, event_id, candidate["event_id"], "pipeline", score=scored.score, evidence=evidence)
+        log.info("auto-merge event %s -> %s score=%.3f rule=%s", event_id, candidate["event_id"], scored.score, scored.rule)
+        return "merged"
+    if merge_mod.propose(conn, event_id, candidate["event_id"], scored.score, evidence) is not None:
+        return "proposed"
+    return None
+
+
+def _rescore_event(conn: sqlite3.Connection, event_id: str, links: LinkIndex) -> tuple[str, float] | None:
+    """After a sibling attach: score the live event, with its grown track, against other feeds' events."""
+    event = conn.execute("SELECT * FROM event WHERE event_id = ?", (event_id,)).fetchone()
+    if event is None or event["merged_into_event_id"] is not None:
+        return None
+    recs = event_records(conn, event_id)
+    entity = matching.entity_from_event(conn, event, recs)
+    if len(entity.source_ids) > 1:  # already a cross-source event: nothing left to find among the other feeds
+        return None
+    best = _best_candidate(conn, entity)
+    if best is None:
+        return None
+    decision = _decide(conn, event_id, entity, best)
+    if decision == "merged":
+        for rec in recs:
+            links.add_record(rec["source_id"], payload_of(rec), best[0]["event_id"])
+    return (decision, best[1].score) if decision else None
+
+
+def _finish(conn: sqlite3.Connection, rec: sqlite3.Row, payload: dict, event_id: str, action: str, links: LinkIndex) -> Outcome:
+    _attach(conn, rec["source_record_id"], event_id)
+    links.add_record(rec["source_id"], payload, event_id)
+    return Outcome(event_id, action)
 
 
 def _attach(conn: sqlite3.Connection, source_record_id: str, event_id: str) -> None:
@@ -133,143 +294,6 @@ def create_event(conn: sqlite3.Connection, rec: sqlite3.Row) -> str:
         ),
     )
     return event_id
-
-
-def derive(conn: sqlite3.Connection, recs: list[sqlite3.Row]) -> dict:
-    """Event columns as a function of its records; the latest observation wins ties."""
-    latest = recs[-1]
-    collector = collectors.get(latest["source_id"])
-    label, score = collector.severity(json.loads(latest["payload"]))
-    ended = None
-    if latest["ended_at"] is not None:
-        ended = max(r["ended_at"] for r in recs if r["ended_at"])
-    country = None
-    for r in reversed(recs):
-        country = collectors.get(r["source_id"]).country_iso3(json.loads(r["payload"]))
-        if country:
-            break
-    return {
-        "hazard_type": latest["hazard_type"],
-        "title": latest["title"],
-        "status": "active" if ended is None else "ended",
-        "started_at": min(r["started_at"] or r["observed_at"] for r in recs),
-        "ended_at": ended,
-        "last_observed_at": max(r["observed_at"] for r in recs),
-        "severity_score": score,
-        "severity_label": label,
-        "country_iso3": country,
-        "glide_number": next((r["glide_number"] for r in reversed(recs) if r["glide_number"]), None),
-    }
-
-
-def refresh_event(conn: sqlite3.Connection, event_id: str) -> bool:
-    """Recompute the event's derived columns and geometries from its records. True when anything changed."""
-    current = conn.execute("SELECT * FROM event WHERE event_id = ?", (event_id,)).fetchone()
-    if current is None or current["merged_into_event_id"] is not None:
-        return False
-    recs = conn.execute(
-        "SELECT * FROM source_record WHERE event_id = ? ORDER BY observed_at, source_record_id", (event_id,)
-    ).fetchall()
-    if not recs:
-        return False
-    values = derive(conn, recs)
-    located = next((r for r in reversed(recs) if r["lat"] is not None and r["lon"] is not None), None)
-    values["centroid_lat"] = located["lat"] if located else None
-    values["centroid_lon"] = located["lon"] if located else None
-    if values["glide_number"]:
-        clash = conn.execute(
-            "SELECT event_id FROM event WHERE glide_number = ? AND merged_into_event_id IS NULL AND event_id <> ?",
-            (values["glide_number"], event_id),
-        ).fetchone()
-        if clash:
-            log.warning("glide %s already on event %s; leaving event %s without it", values["glide_number"], clash[0], event_id)
-            values["glide_number"] = None
-    changed = any(current[key] != value for key, value in values.items())
-    if changed:
-        assignments = ", ".join(f"{key} = :{key}" for key in values)
-        conn.execute(
-            f"UPDATE event SET {assignments}, updated_at = :updated_at WHERE event_id = :event_id",
-            {**values, "updated_at": now_iso(), "event_id": event_id},
-        )
-    return _sync_geometries(conn, event_id, recs, located) or changed
-
-
-def _bbox(geometry: dict) -> tuple[float, float, float, float]:
-    """(min_lat, min_lon, max_lat, max_lon) over every vertex of a GeoJSON geometry."""
-    points: list[tuple[float, float]] = []
-
-    def walk(node) -> None:
-        if isinstance(node, (list, tuple)) and node and isinstance(node[0], (int, float)):
-            points.append((float(node[0]), float(node[1])))
-        elif isinstance(node, (list, tuple)):
-            for child in node:
-                walk(child)
-
-    walk(geometry.get("coordinates"))
-    lons = [p[0] for p in points]
-    lats = [p[1] for p in points]
-    return min(lats), min(lons), max(lats), max(lons)
-
-
-def _sync_geometries(conn: sqlite3.Connection, event_id: str, recs: list[sqlite3.Row], located: sqlite3.Row | None) -> bool:
-    changed = False
-    if located is not None:
-        lat, lon = float(located["lat"]), float(located["lon"])
-        values = {
-            "role": "centroid",
-            "geojson": json.dumps({"type": "Point", "coordinates": [lon, lat]}),
-            "min_lat": lat,
-            "min_lon": lon,
-            "max_lat": lat,
-            "max_lon": lon,
-            "precision": config.GEOMETRY_PRECISION_BY_HAZARD.get(located["hazard_type"], config.GEOMETRY_PRECISION_DEFAULT),
-            "observed_at": located["observed_at"],
-            "source_id": located["source_id"],
-            "source_record_id": located["source_record_id"],
-        }
-        row = conn.execute("SELECT * FROM event_geometry WHERE event_id = ? AND is_primary = 1", (event_id,)).fetchone()
-        if row is None:
-            conn.execute(
-                """
-                INSERT INTO event_geometry (geometry_id, event_id, role, geojson, min_lat, min_lon, max_lat, max_lon,
-                                            precision, observed_at, source_id, source_record_id, is_primary)
-                VALUES (:geometry_id, :event_id, :role, :geojson, :min_lat, :min_lon, :max_lat, :max_lon,
-                        :precision, :observed_at, :source_id, :source_record_id, 1)
-                """,
-                {"geometry_id": new_id(), "event_id": event_id, **values},
-            )
-            changed = True
-        elif any(row[key] != value for key, value in values.items()):
-            assignments = ", ".join(f"{key} = :{key}" for key in values)
-            conn.execute(f"UPDATE event_geometry SET {assignments} WHERE geometry_id = :geometry_id", {**values, "geometry_id": row["geometry_id"]})
-            changed = True
-    for rec in recs:
-        footprint = collectors.get(rec["source_id"]).footprint(json.loads(rec["payload"]))
-        if footprint is None:
-            continue
-        geojson = json.dumps(footprint, sort_keys=True)
-        min_lat, min_lon, max_lat, max_lon = _bbox(footprint)
-        row = conn.execute(
-            "SELECT geometry_id, geojson FROM event_geometry WHERE event_id = ? AND role = 'footprint' AND source_record_id = ?",
-            (event_id, rec["source_record_id"]),
-        ).fetchone()
-        if row is None:
-            conn.execute(
-                """
-                INSERT INTO event_geometry (geometry_id, event_id, role, geojson, min_lat, min_lon, max_lat, max_lon,
-                                            precision, observed_at, source_id, source_record_id, is_primary)
-                VALUES (?, ?, 'footprint', ?, ?, ?, ?, ?, 'exact', ?, ?, ?, 0)
-                """,
-                (new_id(), event_id, geojson, min_lat, min_lon, max_lat, max_lon, rec["observed_at"], rec["source_id"], rec["source_record_id"]),
-            )
-            changed = True
-        elif row["geojson"] != geojson:
-            conn.execute(
-                "UPDATE event_geometry SET geojson = ?, min_lat = ?, min_lon = ?, max_lat = ?, max_lon = ?, observed_at = ? WHERE geometry_id = ?",
-                (geojson, min_lat, min_lon, max_lat, max_lon, rec["observed_at"], row["geometry_id"]),
-            )
-            changed = True
-    return changed
 
 
 def unresolved_count(conn: sqlite3.Connection) -> int:

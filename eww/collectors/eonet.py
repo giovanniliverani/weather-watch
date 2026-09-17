@@ -15,14 +15,20 @@ from datetime import datetime
 
 import httpx
 
+import re
+
 from eww import config, countries
 from eww import http as http_mod
+from eww import severity as severity_mod
 from eww.collectors.base import FetchResult
 from eww.clock import normalise_iso
 
 log = logging.getLogger(__name__)
 
 SOURCE_ID = "eonet"
+LINK_TARGETS = ("gdacs",)  # sources[].url of a mirrored event carries the GDACS report URL and eventid
+FOOTPRINT_PRECISION = "exact"
+GDACS_EVENTID_RE = re.compile(r"gdacs\.org/.*?[?&]eventid=(\d+)", re.IGNORECASE)
 
 
 # ----------------------------------------------------------------------------- fetch
@@ -143,14 +149,26 @@ def centroid(geometry: dict) -> tuple[float | None, float | None]:
 
 # ----------------------------------------------------------------------------- derived, from a stored payload
 def severity(payload: dict) -> tuple[str | None, float | None]:
-    """EONET carries no alert level: the label is the magnitude when present ('5747 hectare'), score 0.4."""
+    """EONET carries no alert level: the magnitude ('5747 hectare') scaled per unit, else 0.4 (eww.severity)."""
     geometries = payload.get("geometry") or []
-    geometry = geometries[0] if geometries else {}
-    value, unit = geometry.get("magnitudeValue"), geometry.get("magnitudeUnit")
-    label = None
-    if value is not None:
-        label = f"{float(value):g} {unit}".strip() if unit else f"{float(value):g}"
-    return label, config.EONET_SEVERITY
+    return severity_mod.eonet_severity(geometries[0] if geometries else None)
+
+
+def linked_ids(payload: dict) -> list[tuple[str, str]]:
+    """[('gdacs', '1104153')] for every GDACS report URL among the event's sources (940 of 1,051 items on 2026-09-16)."""
+    found: list[tuple[str, str]] = []
+    for source in payload.get("sources") or []:
+        match = GDACS_EVENTID_RE.search(str(source.get("url") or ""))
+        if match and ("gdacs", match.group(1)) not in found:
+            found.append(("gdacs", match.group(1)))
+    return found
+
+
+def storm_name(payload: dict) -> str | None:
+    """The title of a storm-class event ('Hurricane Karina'); the type words are stripped by eww.matching."""
+    if hazard_for(payload) not in ("tropical_cyclone", "severe_storm"):
+        return None
+    return (payload.get("title") or "").strip() or None
 
 
 def country_iso3(payload: dict) -> str | None:

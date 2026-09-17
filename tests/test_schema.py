@@ -14,10 +14,13 @@ def test_schema_applies_on_empty_file(tmp_path):
         assert expected in tables
     assert db.schema_version(connection) == db.SCHEMA_VERSION == 2
     sources = {row[0]: row for row in connection.execute("SELECT source_id, kind, attribution, terms_url FROM source")}
-    assert set(sources) == {"gdacs", "eonet"}
+    assert set(sources) == {"gdacs", "eonet", "copernicus"}
     assert sources["gdacs"]["kind"] == "authority"
     assert "CC BY 4.0" in sources["gdacs"]["attribution"]
     assert sources["eonet"]["terms_url"].startswith("https://")
+    assert "European Union" in sources["copernicus"]["attribution"]
+    for expected in ("event_lineage", "merge_proposal"):
+        assert expected in tables
     connection.close()
 
 
@@ -25,7 +28,7 @@ def test_init_db_twice_changes_nothing(conn):
     before = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
     assert db.init_db(conn) is False
     assert conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == before == 1  # a fresh install records only the current version
-    assert conn.execute("SELECT COUNT(*) FROM source").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM source").fetchone()[0] == 3
 
 
 def test_strict_tables_reject_wrong_types(conn):
