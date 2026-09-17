@@ -1,0 +1,16 @@
+---
+description: Save reusable standalone helpers to the playbook instead of leaving them only in chat.
+alwaysApply: true
+---
+
+# Save reusable helpers to the playbook
+
+If this session produced a standalone helper (`.py`, `.sql`, `.ps1`, checklist, or template) that is **not** product/model code and is likely needed again:
+
+1. Follow `.cursor/skills/playbook/SKILL.md`
+2. Write the file under `.cursor/skills/playbook/files/` (mirror to `.claude/skills/playbook/files/` if that tree exists)
+3. Add one line to `files/INDEX.md`
+
+Do **not** save: secrets, unapproved drafts, query result dumps, Excel/Desktop run artifacts, or files that already belong in a job skill's `references/` or `scripts/`.
+
+Do **not** re-run the original task just because you filed the helper.
