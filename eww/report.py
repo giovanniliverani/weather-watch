@@ -1,4 +1,4 @@
-"""`eww report density`: the M0 density check written to docs/m0-density.md.
+"""`eww report density`: the M0 density check written to docs/m0.md (the milestone record, config.milestone_doc).
 
 Counts the events observed in the last N days by hazard type and by continent (via
 eww/data/countries.csv), counts non-wildfire events in Europe, and judges them against the
@@ -210,7 +210,7 @@ def render_markdown(result: dict) -> str:
 
 def write_density_report(conn: sqlite3.Connection, days: int = 30, out: Path | None = None, now: datetime | None = None) -> tuple[Path, dict]:
     result = density(conn, days, now)
-    path = out or (config.DOCS_DIR / "m0-density.md")
+    path = out or config.milestone_doc(0)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_markdown(result), encoding="utf-8")
     return path, result
@@ -299,7 +299,7 @@ def render_volume_markdown(result: dict) -> str:
 
 def write_volume_report(remote_url: str, branch: str = "data", out: Path | None = None, now: datetime | None = None) -> tuple[Path, dict]:
     result = measure_volume(remote_url, branch, now)
-    path = out or (config.DOCS_DIR / "m1-volume.md")
+    path = out or config.milestone_doc(1)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_volume_markdown(result), encoding="utf-8")
     return path, result
@@ -540,7 +540,131 @@ def render_identity_markdown(result: dict) -> str:
 
 def write_identity_report(conn: sqlite3.Connection, out: Path | None = None, days: int = 30, now: datetime | None = None) -> tuple[Path, dict]:
     result = identity_report(conn, days, now)
-    path = out or (config.DOCS_DIR / "m2.md")
+    path = out or config.milestone_doc(2)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_identity_markdown(result), encoding="utf-8")
+    return path, result
+
+
+# ============================================================================= M3: attachment evaluation (docs/m3.md)
+def attachment_report(conn: sqlite3.Connection, evaluation: dict | None, *, now: datetime | None = None) -> dict:
+    """What M3 did: coverage, decisions, extraction and geocoding counts, the labelled precision and its errors."""
+    from eww import attach, documents, geocode, ratelimit
+
+    now = now or now_utc()
+    since = now - timedelta(days=config.DOCTOR_LOG_DAYS)
+    return {
+        "generated_at": to_iso(now),
+        "database": str(config.DB_PATH),
+        "identity_path": config.IDENTITY["path"],
+        "attachment": config.ATTACHMENT,
+        "documents": documents.stats(conn),
+        "coverage": attach.coverage(conn, min_severity=config.COVERAGE_MIN_SEVERITY, days=config.ENRICH_ACTIVE_DAYS, min_documents=config.COVERAGE_MIN_DOCUMENTS, now=now),
+        "gazetteer_rows": geocode.gazetteer_count(conn),
+        "geocode_cache": geocode.cache_stats(conn),
+        "geocode_log": ratelimit.geocode_report(since),
+        "limits": ratelimit.limits_report(since),
+        "log_since": to_iso(since),
+        "evaluation": evaluation,
+        "sample_path": str(config.ATTACHMENT_SAMPLE_CSV),
+    }
+
+
+def render_attachment_markdown(result: dict) -> str:
+    from eww import labels as labels_mod
+
+    att = result["attachment"]
+    cov = result["coverage"]
+    docs = result["documents"]
+    share = "n/a" if cov["share"] is None else f"{100 * cov['share']:.0f}%"
+    lines = [
+        "# M3: headlines on pins",
+        "",
+        f"Generated {result['generated_at']} by `eww eval attachments` against `{result['database']}`; attachment numbers from `{result['identity_path']}`.",
+        "",
+        "## What the rules are",
+        "",
+        "A document is scored against the live events of its hazard class whose window overlaps its own and that a resolved place "
+        "puts within twice the hazard's blocking radius, or that share its country, or whose own query fetched it. "
+        f"s = {att['weights']['spatial']:g} spatial + {att['weights']['temporal']:g} temporal + {att['weights']['text']:g} text "
+        f"(no resolved place: {att['no_place_weights']['temporal']:g} temporal + {att['no_place_weights']['text']:g} text, text at least {att['no_place_min_text']:g}), "
+        f"+{att['query_prior']:g} when the event's query fetched the document; at or above {att['attach_threshold']:g} attached, "
+        f"at or above {att['candidate_threshold']:g} a candidate for the Review tab, below that nothing.",
+        "",
+        "## Coverage (exit criterion 1)",
+        "",
+        f"**{cov['covered']} of {cov['events']} events with severity >= {cov['min_severity']:g} active in the last {config.ENRICH_ACTIVE_DAYS} days have >= {cov['min_documents']} attached documents ({share}; target {100 * config.COVERAGE_TARGET:.0f}%).**",
+        "",
+        "| Event | Hazard | Severity | Country | Attached | Candidates | Queried |",
+        "|---|---|---:|---|---:|---:|---:|",
+    ]
+    for row in cov["rows"]:
+        lines.append(f"| {row['title']} | {row['hazard_type']} | {row['severity_score']:.3f} | {row['country_iso3'] or ''} | {row['attached']} | {row['candidates']} | {row['queried']} |")
+    lines += [
+        "",
+        "## Documents",
+        "",
+        "| Measure | Value |",
+        "|---|---:|",
+        f"| Documents | {docs['documents']} |",
+    ]
+    for key, n in docs["by_source_kind"].items():
+        lines.append(f"| ... from {key} | {n} |")
+    lines += [
+        f"| Longest text_excerpt (limit {config.EXCERPT_MAX_CHARS}) | {docs['longest_excerpt']} |",
+        f"| With a thumbnail reference | {docs['with_media']} |",
+        f"| Extracted / classified by the lexicon / with a located place | {docs['extracted']} / {docs['classified']} / {docs['located']} |",
+        f"| Embedded | {docs['embedded']} |",
+        f"| Decisions: attached / candidate / rejected | {docs['decisions'].get('attached', 0)} / {docs['decisions'].get('candidate', 0)} / {docs['decisions'].get('rejected', 0)} |",
+        f"| Decided by | {', '.join(f'{k} {v}' for k, v in docs['decided_by'].items()) or 'none'} |",
+        f"| Mention geometries | {docs['mentions']} |",
+        f"| Unattached documents (purged after {config.PURGE_UNATTACHED_DAYS} days) | {docs['unattached']} |",
+        "",
+        "## Geocoding and rate limits",
+        "",
+        f"Gazetteer rows: {result['gazetteer_rows']}. geocode_cache entries: " + (", ".join(f"{p} {v['entries']} ({v['found']} found)" for p, v in result["geocode_cache"].items()) or "none") + ".",
+        "",
+    ]
+    geo_log = result["geocode_log"]
+    rate = "n/a" if geo_log["hit_rate"] is None else f"{100 * geo_log['hit_rate']:.0f}%"
+    lines.append(f"Geocode lookups logged since {result['log_since']}: {geo_log['lookups']}, answered from the cache: {geo_log['cache_hits']} ({rate}; exit criterion 4 asks for >= {100 * config.CACHE_HIT_RATE_TARGET:.0f}% in the second week).")
+    lines += ["", "| Provider | Calls | Max in a minute | Max in an hour | Max in a day | Min spacing | User-Agent carries the contact |", "|---|---:|---:|---:|---:|---:|---|"]
+    for provider, r in result["limits"].items():
+        spacing = "n/a" if r["min_spacing_s"] is None else f"{r['min_spacing_s']:.1f} s"
+        lines.append(f"| {provider} | {r['calls']} | {r['max_per_minute']} | {r['max_per_hour']} | {r['max_per_day']} | {spacing} | {'yes' if r['user_agent_ok'] else 'NO'} |")
+    if not result["limits"]:
+        lines.append("| (no calls logged) | | | | | | |")
+    lines += ["", "## Hand-checked attachments (exit criterion 2)", ""]
+    evaluation = result["evaluation"]
+    if evaluation is None:
+        lines.append(f"No labelled sample yet: run `uv run eww eval attachments --sample 100`, fill `correct` (yes/no) and `cause` in `{result['sample_path']}`, then run `uv run eww eval attachments` again.")
+    else:
+        lines += ["```", labels_mod.render_attachment_evaluation(evaluation), "```", ""]
+        if evaluation["wrong"]:
+            lines += ["| Event | Headline | Publisher | Score | Cause |", "|---|---|---|---:|---|"]
+            for row in evaluation["wrong"]:
+                score = row.get("score") or ""
+                try:
+                    score = f"{float(score):.2f}"
+                except (TypeError, ValueError):
+                    pass
+                headline = (row.get("title") or "").replace("|", "/").replace("[", "(").replace("]", ")")
+                lines.append(f"| {row.get('event_title', '')} | [{headline}]({row.get('url', '')}) | {row.get('publisher', '')} | {score} | {row.get('cause', '')} |")
+    lines += [
+        "",
+        "## How to tune",
+        "",
+        "1. Edit the `attachment:` section of `identity.yaml` (weights, thresholds, windows) or `eww/data/lexicon.yaml` (terms and negative patterns).",
+        "2. Re-decide every pipeline row on a copy of the database: copy `data/eww.sqlite` to `data/copy.sqlite`, then `uv run eww --db data/copy.sqlite attach --rebuild`.",
+        "3. Re-run `uv run eww eval attachments --sample 100`, label, and `uv run eww eval attachments` for this report.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def write_attachment_report(conn: sqlite3.Connection, evaluation: dict | None, out: Path | None = None, now: datetime | None = None) -> tuple[Path, dict]:
+    result = attachment_report(conn, evaluation, now=now)
+    path = out or config.milestone_doc(3)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_attachment_markdown(result), encoding="utf-8")
     return path, result

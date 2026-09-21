@@ -1,4 +1,6 @@
-"""The GeoJSON contract from docs/architecture.md §2. The viewer imports this module and nothing else.
+"""The GeoJSON contract from docs/architecture.md §2, plus (M3) the two other reads the viewer needs:
+`event_documents()` for the sidebar's News tab and `attributions()` for the About section. The viewer
+imports this module and eww.review and nothing else.
 
     events_geojson(since, until=None, hazard=None, min_severity=0.0, status=None,
                    bbox=None, include_footprints=False, limit=2000) -> FeatureCollection
@@ -18,7 +20,7 @@ import sqlite3
 from datetime import datetime
 from typing import Iterable
 
-from eww import collectors, config, db, events, heartbeat
+from eww import collectors, config, db, embed, events, heartbeat
 from eww.clock import now_utc, parse_when, to_iso
 
 HAZARD_TYPES: list[str] = list(config.HAZARD_TYPES)
@@ -306,3 +308,72 @@ def count_in_window(conn: sqlite3.Connection, since: str | datetime, until: str 
         f"SELECT COUNT(*) FROM event e WHERE {WINDOW_SQL}",
         {"since": since_iso, "until": to_iso(until_dt) if until_dt else None},
     ).fetchone()[0]
+
+
+# ----------------------------------------------------------------------------- M3: the News tab and the About section
+DOCUMENT_FIELDS = ("document_id", "source_id", "kind", "title", "url", "publisher", "published_at", "media_url", "media_kind", "language", "score", "method", "decided_by")
+
+
+def event_documents(event_id: str, *, conn: sqlite3.Connection | None = None, limit: int = 100) -> list[dict]:
+    """Attached documents of the (canonical) event, newest first, syndicated copies collapsed into one entry.
+
+    Each entry carries the representative document's fields plus `copies` (documents in the group),
+    `publishers` (their distinct publishers) and `urls`. Copies are documents whose vectors lie within
+    identity.yaml's `syndication_cosine` of each other (single linkage over the event's attached rows).
+    """
+    own = conn is None
+    conn = conn or db.connect()
+    try:
+        canonical = events.canonical_event_id(conn, event_id)
+        merged = [row[0] for row in conn.execute("SELECT event_id FROM event WHERE merged_into_event_id = ?", (canonical,))]
+        ids = [canonical, *merged]
+        marks = ", ".join("?" * len(ids))
+        rows = conn.execute(
+            f"""
+            SELECT d.document_id, d.source_id, d.kind, d.title, d.url, d.publisher, d.published_at, d.media_url, d.media_kind, d.language,
+                   ed.score, ed.method, ed.decided_by
+            FROM event_document ed JOIN document d ON d.document_id = ed.document_id
+            WHERE ed.event_id IN ({marks}) AND ed.status = 'attached' AND d.removed_at IS NULL
+            ORDER BY COALESCE(d.published_at, d.fetched_at) DESC, d.document_id
+            """,
+            ids,
+        ).fetchall()
+        by_id = {row["document_id"]: dict(row) for row in rows}
+        vectors = embed.vectors_for(conn, list(by_id))
+        groups = embed.similarity_groups(vectors) if vectors else []
+        grouped: set[str] = {doc_id for group in groups for doc_id in group}
+        groups += [[doc_id] for doc_id in by_id if doc_id not in grouped]
+        out = []
+        for group in groups:
+            members = sorted((by_id[i] for i in group if i in by_id), key=lambda d: (d["published_at"] or "", d["document_id"]), reverse=True)
+            if not members:
+                continue
+            head = dict(members[0])
+            head["copies"] = len(members)
+            head["publishers"] = sorted({m["publisher"] for m in members if m["publisher"]})
+            head["urls"] = [m["url"] for m in members]
+            if head["media_url"] is None:
+                head["media_url"] = next((m["media_url"] for m in members if m["media_url"] and m["media_kind"] == "image"), None)
+                head["media_kind"] = "image" if head["media_url"] else head["media_kind"]
+            out.append(head)
+        out.sort(key=lambda d: (d["published_at"] or "", d["document_id"]), reverse=True)
+        return out[:limit] if limit else out
+    finally:
+        if own:
+            conn.close()
+
+
+def attributions(*, conn: sqlite3.Connection | None = None) -> list[dict]:
+    """Every data source and service the map shows, with its credit line and terms page, for the About section."""
+    own = conn is None
+    conn = conn or db.connect()
+    try:
+        rows = conn.execute("SELECT source_id, display_name, attribution, terms_url FROM source ORDER BY kind, source_id").fetchall()
+    finally:
+        if own:
+            conn.close()
+    out = [{"id": r["source_id"], "name": r["display_name"], "attribution": r["attribution"], "terms_url": r["terms_url"]} for r in rows]
+    out.append({"id": "geonames", "name": "GeoNames gazetteer and web service", "attribution": config.GEOCODER_ATTRIBUTIONS["gazetteer"], "terms_url": "https://creativecommons.org/licenses/by/4.0/"})
+    out.append({"id": "nominatim", "name": "Nominatim (OpenStreetMap)", "attribution": config.GEOCODER_ATTRIBUTIONS["nominatim"], "terms_url": "https://operations.osmfoundation.org/policies/nominatim/"})
+    out.append({"id": "osm-tiles", "name": "Map tiles", "attribution": "© OpenStreetMap contributors, ODbL", "terms_url": "https://www.openstreetmap.org/copyright"})
+    return out

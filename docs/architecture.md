@@ -672,11 +672,11 @@ attach_document(doc):
 
 **The riskiest assumption in the plan** is that free authoritative feeds alone put enough real events on the map, at the freshness target, for it to feel alive for *weather* hazards, with news reduced to a garnish. If that is wrong, the design must lean on news-driven discovery much earlier, which changes both the clustering problem and the cost profile. M0 is the cheapest possible test: no scheduler, no news, no model, and it ends with a number and a decision rule. The second risk, attachment precision from headlines alone, is tested in M3, which is also the milestone most likely to overrun.
 
-Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medium, M6 small. Every milestone ends with something you can look at, query or click.
+Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medium, M6 small. Every milestone ends with something you can look at, query or click, and with **one record in `docs/m<N>.md`** — `docs/m0.md` for M0, `docs/m3.md` for M3 — written by the command that measures that milestone (`eww report density`, `eww report volume`, `eww report identity`, `eww eval attachments`), so the measured numbers outlive the session that produced them. `eww/config.py` keeps the naming rule as `milestone_doc(n)`; the milestone is not done until that file and this section both carry its numbers.
 
 ### M0 — Real events on a local map (small) — DONE 2026-09-16
 
-**Result.** Built and run the same day; `docs/m0-density.md` holds the counts. Exit criteria: (1) two consecutive collects fetched 2,192 GDACS and 1,051 EONET items into 3,633 `source_record` rows and 3,243 events; the second collect added 0 rows and left the event count at 3,243. (2) The duplicate query returns no rows; 0 unresolved records after `eww resolve`, and a second `eww resolve` changes nothing. (3) `eww export --since 30d` wrote 3,228 features, equal to the SQL count for the same window; a 12-feature sample carrying the `meta` member loaded in geojson.io without error. (4) The viewer drew 1,396 pins for its default 14-day window; clicking one showed title, hazard, start date, severity label, country and the source link in the sidebar. (5) Density bar, all four criteria met: 3,228 events observed in 30 days; 1,643 after excluding the 1,585 GDACS wildfires below Orange; 703 after also removing the 940 EONET items that mirror a GDACS event (M0 has no cross-source merging). Hazard types with 3 or more events: 5 (wildfire 1,000, earthquake 484, flood 111, tropical cyclone 33, drought 13). Continents with 3 or more: 6. Non-wildfire events in Europe: 50 (38 without the mirrors). The bar also passes on the de-duplicated set, so the anchored-feeds bet holds and Meteoalarm stays out of M2.
+**Result.** Built and run the same day; `docs/m0.md` holds the counts. Exit criteria: (1) two consecutive collects fetched 2,192 GDACS and 1,051 EONET items into 3,633 `source_record` rows and 3,243 events; the second collect added 0 rows and left the event count at 3,243. (2) The duplicate query returns no rows; 0 unresolved records after `eww resolve`, and a second `eww resolve` changes nothing. (3) `eww export --since 30d` wrote 3,228 features, equal to the SQL count for the same window; a 12-feature sample carrying the `meta` member loaded in geojson.io without error. (4) The viewer drew 1,396 pins for its default 14-day window; clicking one showed title, hazard, start date, severity label, country and the source link in the sidebar. (5) Density bar, all four criteria met: 3,228 events observed in 30 days; 1,643 after excluding the 1,585 GDACS wildfires below Orange; 703 after also removing the 940 EONET items that mirror a GDACS event (M0 has no cross-source merging). Hazard types with 3 or more events: 5 (wildfire 1,000, earthquake 484, flood 111, tropical cyclone 33, drought 13). Continents with 3 or more: 6. Non-wildfire events in Europe: 50 (38 without the mirrors). The bar also passes on the de-duplicated set, so the anchored-feeds bet holds and Meteoalarm stays out of M2.
 
 **What M0 taught the collectors.** GDACS: `alertlevel` is mandatory (HTTP 204 without it), a page past the end is a 204, and a combined `eventlist` collapsed to 4 rows when one listed type (TS) had no rows in the window, so the collector queries one type per request (about 30 requests for a 30-day window); the swagger file confirmed the parameter names. EONET: `start`/`end` returned the same 1,051 events as `days=30`; Polygon rings arrive as [lat, lon] and are swapped on ingest (39 of 40 GDACS-sourced flood polygons landed on GDACS's own point only after the swap); EONET carries no country, so `country_iso3` is read from GDACS-style titles ("Flood in Croatia 1104153") or implied by US-only fire sources (IRWIN, InciWeb), leaving 121 counted events without a continent. 940 of the 1,051 EONET items cite a GDACS report URL carrying the GDACS eventid: a deterministic cross-source key for M2, like Copernicus's `gdacsId`. `events_geojson(limit=0)` returns everything in the window; the exporter and the viewer use it, and the contract's default of 2,000 is unchanged.
 
@@ -691,13 +691,13 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 2. `SELECT source_id, external_id, external_episode, COUNT(*) FROM source_record GROUP BY 1,2,3 HAVING COUNT(*) > 1` returns no rows, and `SELECT COUNT(*) FROM source_record WHERE event_id IS NULL` returns 0 after `eww resolve`.
 3. `uv run eww export --since 30d > events.geojson` loads in geojson.io without error and shows the same number of pins as the SQL count of events observed in the last 30 days.
 4. `uv run streamlit run app.py` shows those pins; clicking one shows its title, hazard type, start date, severity label and a working link to the source's page in the sidebar.
-5. `docs/m0-density.md` records, for the last 30 days: events by hazard type, by continent, and the number of non-wildfire events in Europe. Passing bar: at least 40 events after excluding GDACS wildfires below Orange; at least 4 hazard types with 3 or more events each; at least 4 continents with 3 or more events each; at least 3 non-wildfire events in Europe. If the world passes and Europe fails, Meteoalarm (CC BY 4.0) joins M2 as a warnings layer. If the world fails, the orphan-clustering hook in §3 moves into M3 and GDELT becomes a discovery source.
+5. `docs/m0.md` records, for the last 30 days: events by hazard type, by continent, and the number of non-wildfire events in Europe. Passing bar: at least 40 events after excluding GDACS wildfires below Orange; at least 4 hazard types with 3 or more events each; at least 4 continents with 3 or more events each; at least 3 non-wildfire events in Europe. If the world passes and Europe fails, Meteoalarm (CC BY 4.0) joins M2 as a warnings layer. If the world fails, the orphan-clustering hook in §3 moves into M3 and GDELT becomes a discovery source.
 
 **Risk retired.** The riskiest assumption, and "an interactive map with zero JavaScript".
 
 ### M1 — Collection survives the laptop being off (medium)
 
-**Status (2026-09-16): built, first run observed, exit criteria awaiting the calendar.** The orphan `data` branch exists (README.md only at `a0c330d`); `.github/workflows/collect.yml` runs `eww collect --all-spine --out data-branch` on `7 */3 * * *` and on dispatch, with the default GITHUB_TOKEN and `contents: write`. The first dispatched run took 31 s: gdacs=2,192 and eonet=1,051 items, committed as `28e7df3` by `eww-collector[bot]` on the first push attempt. `eww sync` on the laptop then fetched the branch and replayed it: 2 snapshot files, 11 new and 39 changed `source_record` rows, 2 run-log lines, 2 events created; a second `eww ingest --from branch` reported 0 new snapshot files (exit criterion 3 met). The `heartbeat` view marks the 15:00Z slot as served by both sources and the 12:00Z slot as missed, because M0's manual runs started 92 minutes into it: the 45-minute rule is deliberately strict. Exit criteria 1, 2, 4 and 5 need three days of scheduled runs, which start at 2026-09-16T18:07Z; `docs/m1-volume.md` is provisional at 0.91 MB of pack for the first two snapshot files. If git's delta compression does not pair consecutive snapshots, eight runs a day approach 7 MB/day and criterion 5 fails, in which case the pre-declared fallback (Cloudflare R2 as the sink) applies.
+**Status (2026-09-16): built, first run observed, exit criteria awaiting the calendar.** The orphan `data` branch exists (README.md only at `a0c330d`); `.github/workflows/collect.yml` runs `eww collect --all-spine --out data-branch` on `7 */3 * * *` and on dispatch, with the default GITHUB_TOKEN and `contents: write`. The first dispatched run took 31 s: gdacs=2,192 and eonet=1,051 items, committed as `28e7df3` by `eww-collector[bot]` on the first push attempt. `eww sync` on the laptop then fetched the branch and replayed it: 2 snapshot files, 11 new and 39 changed `source_record` rows, 2 run-log lines, 2 events created; a second `eww ingest --from branch` reported 0 new snapshot files (exit criterion 3 met). The `heartbeat` view marks the 15:00Z slot as served by both sources and the 12:00Z slot as missed, because M0's manual runs started 92 minutes into it: the 45-minute rule is deliberately strict. Exit criteria 1, 2, 4 and 5 need three days of scheduled runs, which start at 2026-09-16T18:07Z; `docs/m1.md` is provisional at 0.91 MB of pack for the first two snapshot files. If git's delta compression does not pair consecutive snapshots, eight runs a day approach 7 MB/day and criterion 5 fails, in which case the pre-declared fallback (Cloudflare R2 as the sink) applies.
 
 **Observed 2026-09-17.** The scheduled runs happened (18:52Z, 23:38Z, 04:45Z) but each started 1 h 35 min to 1 h 45 min after its slot, far outside the 45-minute grace, so the view counts them as missed: the strip read "7 of 8 runs missed" with the pipeline working. Exit criterion 4 is met to the letter (the strip and a hand count agree) and misses its point (telling a stopped pipeline from a slow scheduler). Whether to widen `HEARTBEAT_GRACE_MINUTES` or to accept a red strip while GitHub is late is open question 8 in §7.
 
@@ -714,7 +714,7 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 2. During that window the laptop was off, or `eww sync` was not run, for at least 24 hours; afterwards `SELECT COUNT(*) FROM source_record WHERE first_seen_at BETWEEN <off-start> AND <off-end>` is greater than 0.
 3. Running `eww ingest` twice: the second run reports 0 new snapshot files.
 4. The status strip's "missed runs in 7 days" equals the number you count by hand on the Actions page for the same 7 days, where a run more than 45 minutes late counts as missed.
-5. On a fresh clone of the `data` branch after 3 days, `git count-objects -vH` reports `size-pack` under 15 MB; `docs/m1-volume.md` records it with the extrapolated yearly figure.
+5. On a fresh clone of the `data` branch after 3 days, `git count-objects -vH` reports `size-pack` under 15 MB; `docs/m1.md` records it with the extrapolated yearly figure.
 
 **Risk retired.** Laptop-off gaps; Actions cron reliability; repository growth.
 
@@ -751,7 +751,7 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 
 **Exit criteria.**
 1. Coverage: at least 50% of events with severity ≥ 0.66 active in the last 14 days have 3 or more attached documents (an `eww doctor` query).
-2. Precision: 100 random `attached` rows hand-checked, at least 90 correct; `docs/m3-eval.md` lists the wrong ones and why.
+2. Precision: 100 random `attached` rows hand-checked, at least 90 correct; `docs/m3.md` lists the wrong ones and why.
 3. Rate limits: the log shows Nominatim never exceeded 4 requests in any minute, GeoNames never exceeded 1,000 in any hour, GDELT spacing never under 5 s, and every User-Agent string carries your contact address.
 4. `geocode_cache` hit rate of at least 70% in the second week (`eww doctor` prints hits and misses since a date).
 5. No bytes: `SELECT MAX(length(text_excerpt)) FROM document` is at most 2000, and `data/` contains only the SQLite file and model caches.
@@ -839,11 +839,11 @@ Everything below is deferred on purpose. The plan is credible because this list 
 
 ## 6. Implementation prompts
 
-One prompt per milestone. Paste one into a fresh coding session opened in this repository, in order; each assumes the previous milestone's definition of done is met. Each prompt repeats the project brief so the session needs nothing else, and points at `docs/architecture.md` for the schema and contract, which are in the repo. Do not let a session skip the definition of done: it is the exit criterion from §4, and it is what you check yourself.
+One prompt per milestone. Paste one into a fresh coding session opened in this repository, in order; each assumes the previous milestone's definition of done is met. Every prompt ends the same way, which is why each carries a `DOCS:` line: when the work is done, write that milestone's `docs/m<N>.md` and bring this document up to date with the measured numbers. Each prompt repeats the project brief so the session needs nothing else, and points at `docs/architecture.md` for the schema and contract, which are in the repo. Do not let a session skip the definition of done: it is the exit criterion from §4, and it is what you check yourself.
 
 **Shared project brief** (repeated inside every prompt, kept here for reference):
 
-> Extreme Weather Watch (EWW) is a private, single-user tool that shows recent extreme weather and natural-hazard events on an interactive world map running on my Windows 11 laptop. Stack: Python 3.12 managed with uv, SQLite in WAL mode with STRICT tables, Streamlit + folium (Leaflet) for the viewer. I am strong in Python and SQL and have never written JavaScript or CSS: do not introduce a frontend framework, JavaScript, CSS, or Node tooling. Budget is €25/month, so use only free tiers and local components. No terms-of-service violations: official APIs and feeds only, no scraping, no browser automation, honour every rate limit. Store references to media, never bytes; never store full article bodies (excerpts are at most 2,000 characters). All timestamps are UTC ISO 8601 strings; all surrogate keys are ULIDs; every command is idempotent and safe to re-run. HTTP goes through `httpx` with a User-Agent of the form `extreme-weather-watch/0.x (+contact from config)`. Rate limits, radii and thresholds live in `eww/config.py`. Logging is structured, to stdout. Tests use pytest against a temporary SQLite file. The schema is `sql/schema.sql` and the GeoJSON contract is `eww/api.py`; both are specified in `docs/architecture.md` §3 and §2.
+> Extreme Weather Watch (EWW) is a private, single-user tool that shows recent extreme weather and natural-hazard events on an interactive world map running on my Windows 11 laptop. Stack: Python 3.12 managed with uv, SQLite in WAL mode with STRICT tables, Streamlit + folium (Leaflet) for the viewer. I am strong in Python and SQL and have never written JavaScript or CSS: do not introduce a frontend framework, JavaScript, CSS, or Node tooling. Budget is €25/month, so use only free tiers and local components. No terms-of-service violations: official APIs and feeds only, no scraping, no browser automation, honour every rate limit. Store references to media, never bytes; never store full article bodies (excerpts are at most 2,000 characters). All timestamps are UTC ISO 8601 strings; all surrogate keys are ULIDs; every command is idempotent and safe to re-run. HTTP goes through `httpx` with a User-Agent of the form `extreme-weather-watch/0.x (+contact from config)`. Rate limits, radii and thresholds live in `eww/config.py`. Logging is structured, to stdout. Tests use pytest against a temporary SQLite file. The schema is `sql/schema.sql` and the GeoJSON contract is `eww/api.py`; both are specified in `docs/architecture.md` §3 and §2. Each milestone leaves one record in `docs/m<N>.md` (`docs/m2.md` for M2), written by the command that measures it.
 
 ### Prompt M0 — Real events on a local map
 
@@ -899,7 +899,7 @@ TASK
 6. eww/api.py: events_geojson(...) exactly per the contract in docs/architecture.md §2, following
    merged_into_event_id pointers. `eww export --since 30d` prints the FeatureCollection.
 7. `eww doctor`: prints duplicates in source_record, unresolved records, event count, last run.
-   `eww report density --days 30` writes docs/m0-density.md: events by hazard type, by continent (via
+   `eww report density --days 30` writes docs/m0.md: events by hazard type, by continent (via
    eww/data/countries.csv: iso3,continent from GeoNames countryInfo.txt, CC BY 4.0), and the count of
    non-wildfire events in Europe, plus the pass/fail against the bar in DEFINITION OF DONE.
 8. app.py: Streamlit page; sidebar date range (default 14 days) and hazard multiselect; folium Map with
@@ -921,7 +921,7 @@ DEFINITION OF DONE
    SQL count of events observed in the last 30 days.
 4. `uv run streamlit run app.py` shows the pins; clicking one shows title, hazard, start date, severity
    label and a working source link in the sidebar.
-5. docs/m0-density.md exists with the counts and the pass/fail verdict: >= 40 events excluding GDACS
+5. docs/m0.md exists with the counts and the pass/fail verdict: >= 40 events excluding GDACS
    wildfires below Orange; >= 4 hazard types with >= 3 events; >= 4 continents with >= 3 events;
    >= 3 non-wildfire events in Europe.
 ```
@@ -985,7 +985,7 @@ DEFINITION OF DONE
 4. The status strip's missed-runs count equals a hand count from the Actions page for the same 7 days
    (a run > 45 minutes late counts as missed).
 5. On a fresh clone of the data branch after 3 days, `git count-objects -vH` shows size-pack < 15 MB;
-   docs/m1-volume.md records it with the extrapolated yearly figure.
+   docs/m1.md records it with the extrapolated yearly figure.
 ```
 
 ### Prompt M2 — One event, one pin
@@ -1037,7 +1037,7 @@ TASK
    from blocking with their evidence, one row each, an empty `same_event` column). I fill yes/no by hand
    into data/labels/merge_pairs.csv. `eww eval merges` prints precision and recall of the auto-merge rule
    and lists any true pair that is neither merged nor proposed.
-8. Only if docs/m0-density.md says Europe failed: add a Meteoalarm ATOM collector
+8. Only if docs/m0.md says Europe failed: add a Meteoalarm ATOM collector
    (https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-<country>, CC BY 4.0 with redistribution
    conditions: show "EUMETNET – MeteoAlarm" or the national service, time of issue, a link to
    meteoalarm.org and their disclaimer) into a new `warning` table and a separate toggleable layer.
@@ -1129,7 +1129,7 @@ client per provider with the limits in config. Thresholds and weights are config
 
 DEFINITION OF DONE
 1. >= 50% of events with severity >= 0.66 active in the last 14 days have >= 3 attached documents.
-2. 100 random attached rows hand-checked: >= 90 correct; docs/m3-eval.md lists the errors and causes.
+2. 100 random attached rows hand-checked: >= 90 correct; docs/m3.md lists the errors and causes.
 3. Log shows Nominatim <= 4 requests in any minute, GeoNames <= 1,000 in any hour, GDELT spacing >= 5 s,
    and a User-Agent with my contact address on every provider.
 4. geocode_cache hit rate >= 70% in the second week (`eww doctor`).
@@ -1153,6 +1153,10 @@ leave extraction without a hazard type or a place; events have no written summar
 PROBLEM: fill hazard/place/figures for the ambiguous documents and write a short per-event summary with
 casualty figures, with a model, such that monthly spend cannot exceed a cap and every number is traceable
 to source text.
+
+DOCS: when the work is done, write docs/m4.md — this milestone's record, written by the command that
+measures it, in the shape of docs/m2.md — and update docs/architecture.md §4 (M4) with the measured
+numbers against each exit criterion. One document per milestone; eww/config.py has milestone_doc(n).
 
 TASK
 1. An Extractor interface in eww/llm.py: extract(document, candidate_events) -> Extraction and
@@ -1219,6 +1223,10 @@ and metadata only, never media bytes; idempotent; UTC ISO 8601; ULIDs; identifyi
 in eww/config.py; secrets only in .env; pytest. Read docs/architecture.md §1 (social ranking) and §3.
 STATE: M0–M4 done. Events have attached news with thumbnails, model-written summaries under a cap, and
 a review tab. No social posts, videos or weather yet.
+
+DOCS: when the work is done, write docs/m5.md — this milestone's record, written by the command that
+measures it, in the shape of docs/m2.md — and update docs/architecture.md §4 (M5) with the measured
+numbers against each exit criterion. One document per milestone; eww/config.py has milestone_doc(n).
 
 TASK
 1. Bluesky collector (laptop, inside `eww sync`): create a session with POST
@@ -1288,6 +1296,10 @@ STATE: M0–M5 done. `eww sync` maintains data/eww.sqlite; app.py renders the ma
 GOAL: a private hosted copy I can open on my phone, without touching the pipeline, plus a local HTTP
 endpoint proving the boundary.
 
+DOCS: when the work is done, write docs/m6.md — this milestone's record, written by the command that
+measures it, in the shape of docs/m2.md — and update docs/architecture.md §4 (M6) with the measured
+numbers against each exit criterion. One document per milestone; eww/config.py has milestone_doc(n).
+
 TASK
 1. `eww publish`: run `VACUUM INTO 'data/publish/eww.sqlite'` for a consistent copy; upload it with
    boto3 to a Cloudflare R2 bucket (S3-compatible: endpoint https://<ACCOUNT_ID>.r2.cloudflarestorage.com,
@@ -1344,7 +1356,7 @@ Only things that need your input or an external check.
    - Anthropic prices and the Batch discount: the figures come from a table cached 2026-06-24.
    - Streamlit Community Cloud's one-private-app allowance and resource limits (stated as approximate, dated February 2024).
    - The euro-dollar rate used in §1b.
-   - M1 exit criteria 1, 2, 4 and 5 after three days of scheduled runs (from 2026-09-16T18:07Z): `runs/*.jsonl` lines with `status: ok`, `first_seen_at` inside a laptop-off window, the strip's missed count against a hand count from the Actions page, and `uv run eww report volume` replacing the provisional `docs/m1-volume.md`. Note the 2026-09-17 observation in §4: the runs are happening but 1 h 35 min to 1 h 45 min late.
+   - M1 exit criteria 1, 2, 4 and 5 after three days of scheduled runs (from 2026-09-16T18:07Z): `runs/*.jsonl` lines with `status: ok`, `first_seen_at` inside a laptop-off window, the strip's missed count against a hand count from the Actions page, and `uv run eww report volume` replacing the provisional `docs/m1.md`. Note the 2026-09-17 observation in §4: the runs are happening but 1 h 35 min to 1 h 45 min late.
    - The workflow pins `actions/checkout@v5` and `astral-sh/setup-uv@v10.1.0` (setup-uv publishes no moving `v10` tag); bump them when GitHub deprecates their Node runtime.
    - Copernicus EMS: the API shape (paging, fields, `gdacsId` form) was read from the live endpoint on 2026-09-17. The `source` seed cites https://www.copernicus.eu/en/access-data/copyright-and-licences as the terms page; that page exists and speaks of licences, but its text was not read, so whether it covers redistribution of activation metadata and the exact credit line is **verify**. The credit line used ("Copernicus Emergency Management Service (© <year> European Union), <code>") is the one you gave in the M2 prompt.
    - `named_storm_km` = 5,000 km rests on one season of storms (14 named pairs, all correct); a same-named storm in two basins inside 10 days would test it.

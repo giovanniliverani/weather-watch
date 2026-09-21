@@ -13,8 +13,8 @@ two positions of the entities, so a storm track is compared as a track. `score()
 
 with the weights and constants in config. `key_conflict()` spots pairs the sources themselves keep
 apart (EONET saying "I mirror GDACS 1031315" next to GDACS 1031202); resolve never scores those.
-`title_similarity()` is token Jaccard for now and the hook where M3's embedding model plugs in
-(config.TITLE_SIMILARITY).
+`title_similarity()` is token Jaccard by default; config.TITLE_SIMILARITY = "embedding" (M3) swaps in the
+cosine similarity of the local embedding model (eww.embed).
 """
 
 from __future__ import annotations
@@ -137,7 +137,11 @@ def title_similarity(a: str | None, b: str | None) -> float:
     method = config.TITLE_SIMILARITY
     if method == "jaccard":
         return jaccard(tokens(a), tokens(b))
-    raise NotImplementedError(f"title similarity {method!r} is not available yet (the embedding model arrives in M3)")
+    if method == "embedding":  # M3: cosine of the local model's vectors (EWW_TITLE_SIMILARITY=embedding)
+        from eww import embed
+
+        return embed.title_similarity(a, b)
+    raise NotImplementedError(f"title similarity {method!r} is not available; use 'jaccard' or 'embedding'")
 
 
 # ----------------------------------------------------------------------------- entities

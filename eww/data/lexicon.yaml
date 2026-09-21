@@ -1,0 +1,265 @@
+# Extreme Weather Watch: the hazard lexicon (M3, docs/architecture.md §4). English and Italian.
+#
+# eww.extract matches every pattern case-insensitively on word boundaries against a document's title and
+# excerpt (diacritics folded, so "siccità" and "siccita" both match). A `strong` term names the hazard on
+# its own; a `weak` term only counts when nothing stronger is found and yields a low confidence. A
+# `negative` pattern vetoes any hit it overlaps: "flood of complaints" is not a flood, "storm of criticism"
+# is not a storm. `query` lists the terms the GDELT collector puts in the hazard part of its query
+# (kept short: GDELT rejects long queries). Add a language by adding a key under strong/weak/query;
+# the extractor reads every key it finds.
+version: 1
+
+hazards:
+  flood:
+    strong:
+      en: [flood, floods, flooding, flooded, floodwater, floodwaters, flash flood, flash floods, deluge, inundation, inundated, "river burst its banks", overflowed, "burst its banks"]
+      it: [alluvione, alluvioni, inondazione, inondazioni, esondazione, esondazioni, esondato, esondata, allagamento, allagamenti, allagata, allagato, allagate, allagati, "bomba d'acqua", nubifragio, nubifragi, "piena del fiume", "fiume in piena", "fiumi in piena"]
+    weak:
+      en: ["heavy rain", "heavy rains", "torrential rain", "torrential rains", monsoon, downpour, downpours, "rising waters"]
+      it: ["piogge torrenziali", "pioggia torrenziale", "forti piogge", "piogge intense", "ondata di maltempo"]
+    negative: ["flood of", "floods of", "flooded with", "flooding the", "flooding in of", "flood the", "flood gates", "floodgates", "a flood of", "inondato di", "inondata di", "inondati di", "inondate di", "un fiume di", "alluvione di critiche", "flood of tears", "flood of migrants", "flood of applications", "flooded the market", "floodlight", "floodlights"]
+    query: [flood, floods, flooding, "flash flood", alluvione, alluvioni, inondazione, esondazione, allagamenti]
+
+  tropical_cyclone:
+    strong:
+      en: [hurricane, hurricanes, typhoon, typhoons, "tropical storm", "tropical storms", "tropical cyclone", "tropical cyclones", cyclone, cyclones, "tropical depression", "super typhoon", "post-tropical", landfall]
+      it: [uragano, uragani, tifone, tifoni, ciclone, cicloni, "tempesta tropicale", "tempeste tropicali", "ciclone tropicale", "depressione tropicale"]
+    weak:
+      en: ["storm surge", "category 4", "category 5", "category 3"]
+      it: ["mareggiata", "onda di tempesta"]
+    negative: ["cyclone of", "hurricane of", "political hurricane", "carolina hurricanes", "miami hurricanes", "the hurricanes", "hurricanes fan", "hurricanes coach", "hurricane season outlook", "hurricane relief concert", "ciclone di", "uragano di polemiche"]
+    query: [hurricane, typhoon, cyclone, "tropical storm", uragano, tifone, ciclone, "tempesta tropicale"]
+
+  severe_storm:
+    strong:
+      en: [thunderstorm, thunderstorms, hailstorm, hailstorms, tornado, tornadoes, tornados, derecho, windstorm, windstorms, "severe storm", "severe storms", "severe weather", "violent storm", "violent storms", squall, squalls, downburst, "storm damage", "storm warning", "storm hits", "storm batters", "storm lashes", "storms batter", "storms lash", "storm kills", "storms kill"]
+      it: [temporale, temporali, grandinata, grandinate, "tromba d'aria", "trombe d'aria", tornado, nubifragio, nubifragi, "violento temporale", "violenta tempesta", "forte tempesta", "raffiche di vento", downburst, "allerta meteo", "allerta arancione", "allerta rossa"]
+    weak:
+      en: [storm, storms, gale, gales, hail, "strong winds", "high winds", lightning]
+      it: [tempesta, tempeste, maltempo, bufera, bufere, grandine, "forte vento", "forti venti", fulmine, fulmini]
+    negative: ["storm of criticism", "storm of controversy", "storm of protest", "political storm", "perfect storm", "storm in a teacup", "brainstorm", "brainstorming", "storming", "stormed", "firestorm", "shitstorm", "storm the", "storm into", "twitter storm", "social media storm", "media storm", "stormy relationship", "storm off", "storm out", "weather the storm", "calm before the storm", "eye of the storm", "tempesta di critiche", "tempesta di polemiche", "tempesta politica", "tempesta finanziaria", "tempesta perfetta", "tempesta mediatica", "tempesta sui social", "hail of bullets", "hail mary", "hailed", "hails", "hail a", "hail the", "desert storm", "storm troopers", "stormtroopers", "hailstorm of criticism", "lightning fast", "lightning round", "lightning strike action", "lightning-fast", "gale force of criticism"]
+    query: [storm, storms, thunderstorm, tornado, hailstorm, temporale, tempesta, grandinata, "tromba d'aria", maltempo]
+
+  wildfire:
+    strong:
+      en: [wildfire, wildfires, bushfire, bushfires, "forest fire", "forest fires", "brush fire", "brush fires", brushfire, "grass fire", "grass fires", "wildland fire", "wildland fires", "acres burned", "hectares burned", "hectares burnt", "acres burnt", "fire crews", firefighters, "fire evacuation", "evacuation order", "containment"]
+      it: ["incendio boschivo", "incendi boschivi", "incendio boschivi", rogo, roghi, "incendi", "incendio", "ettari bruciati", "ettari in fumo", "ettari andati in fumo", "fronte del fuoco", "canadair", "vigili del fuoco", "fiamme"]
+    weak:
+      en: [blaze, blazes, "fire", "fires", smoke, "smoke plume", inferno, "burnt out", "burned out"]
+      it: ["fuoco", "fumo", "evacuati", "evacuate"]
+    negative: ["under fire", "fire sale", "fired", "firing", "ceasefire", "cease-fire", "cease fire", "open fire", "opened fire", "gunfire", "fire alarm", "house fire", "apartment fire", "factory fire", "warehouse fire", "car fire", "vehicle fire", "truck fire", "kitchen fire", "fire at a", "set fire to", "sets fire to", "fire station", "fire department budget", "fire chief", "hired and fired", "fire the", "fire him", "fire her", "friendly fire", "fire power", "firepower", "cross fire", "crossfire", "fire and fury", "on fire tonight", "line of fire", "fire in the belly", "playing with fire", "incendio in casa", "incendio in un appartamento", "incendio in una fabbrica", "incendio in un capannone", "incendio doloso in", "auto in fiamme", "fiamme in casa", "a fuoco un appartamento", "a fuoco un capannone", "fuoco amico", "fuoco incrociato", "cessate il fuoco", "aprire il fuoco", "aperto il fuoco", "nel mirino", "fumo negli occhi", "fire and ice", "fire festival", "firebrand", "fire-brand", "firewall", "fireworks", "fuochi d'artificio", "fire sale", "blaze of glory", "blazes a trail", "blazed a trail", "trailblazer"]
+    query: [wildfire, wildfires, bushfire, "forest fire", "brush fire", "incendio boschivo", incendi, rogo, "ettari bruciati"]
+
+  heatwave:
+    strong:
+      en: [heatwave, heatwaves, "heat wave", "heat waves", "extreme heat", "record heat", "heat dome", "scorching heat", "heat alert", "heat warning", "heat emergency", "heat advisory", "record temperatures", "record-breaking heat", "heat-related deaths", "heat deaths", "heatstroke"]
+      it: ["ondata di calore", "ondate di calore", "caldo record", "caldo estremo", "caldo torrido", "temperature record", "bollino rosso", "bollino arancione", "emergenza caldo", "colpo di calore", "colpi di calore", "afa record", "caldo africano", "anticiclone africano"]
+    weak:
+      en: [heat, "high temperatures", "sweltering", "scorching"]
+      it: [caldo, afa, "temperature elevate", "temperature alte"]
+    negative: ["heatwave of", "heat wave of", "in the heat of", "heat of the moment", "the heat is on", "heat pump", "heat pumps", "miami heat", "the heat", "heat map", "heatmap", "dead heat", "heat sink", "turn up the heat", "turned up the heat", "feel the heat", "taking heat", "took heat", "under heat", "heat exchanger", "heat of battle", "heat of the campaign", "caldo di", "il caldo delle", "calore umano", "calore di"]
+    query: [heatwave, "heat wave", "extreme heat", "record heat", "ondata di calore", "caldo record", "caldo estremo", "bollino rosso"]
+
+  coldwave:
+    strong:
+      en: ["cold wave", "cold waves", coldwave, "cold snap", "cold snaps", "arctic blast", "polar vortex", "deep freeze", "extreme cold", "record cold", blizzard, blizzards, "ice storm", "ice storms", snowstorm, snowstorms, "heavy snow", "heavy snowfall", "record snowfall", "winter storm", "winter storms", "freezing temperatures", "sub-zero temperatures", "big freeze", "cold alert", "frost damage", "cold-related deaths"]
+      it: ["ondata di freddo", "ondate di freddo", "ondata di gelo", "gelo record", "freddo record", "freddo polare", "freddo siberiano", "aria artica", "bufera di neve", "bufere di neve", "tempesta di neve", "tempeste di neve", "nevicata record", "nevicate abbondanti", "forti nevicate", "abbondanti nevicate", "temperature polari", "gelate tardive", "allerta neve", "emergenza neve", "emergenza freddo", "gelicidio"]
+    weak:
+      en: [snow, snowfall, frost, freeze, freezing, "cold weather", "icy roads", "black ice"]
+      it: [neve, nevicata, nevicate, gelo, gelate, ghiaccio, freddo, "strade ghiacciate"]
+    negative: ["cold war", "cold case", "cold feet", "cold shoulder", "cold call", "cold calls", "cold calling", "blood cold", "cold-blooded", "cold blooded", "out in the cold", "left cold", "frozen assets", "hiring freeze", "pay freeze", "price freeze", "freeze on", "asset freeze", "snowball", "snowballing", "snow white", "snowflake", "snowflakes", "snow job", "snowed under", "snowed under with", "freeze frame", "brain freeze", "frost mage", "the big freeze on", "guerra fredda", "sangue freddo", "a freddo", "doccia fredda", "congelamento dei prezzi", "congelati i beni", "congelamento degli stipendi", "gelo tra", "gelo politico", "gelo diplomatico", "neve di", "palla di neve"]
+    query: ["cold wave", "cold snap", blizzard, "ice storm", snowstorm, "heavy snow", "ondata di freddo", "ondata di gelo", "bufera di neve", "forti nevicate"]
+
+  drought:
+    strong:
+      en: [drought, droughts, "water shortage", "water shortages", "water crisis", "water rationing", "dry spell", "prolonged dry spell", "crop failure", "crop failures", "failed rains", "rains have failed", "parched", "drought emergency", "drought declared"]
+      it: [siccità, "crisi idrica", "emergenza idrica", "emergenza siccità", "carenza d'acqua", "carenza idrica", "razionamento dell'acqua", "razionamento idrico", "scarsità d'acqua", "campi arsi", "terreni aridi", "raccolti persi per la siccità"]
+    weak:
+      en: ["dry conditions", "low rainfall", "below-average rainfall", "reservoirs", "water levels"]
+      it: ["poca pioggia", "assenza di piogge", "livelli dei fiumi", "invasi"]
+    negative: ["drought of", "goal drought", "goalscoring drought", "scoring drought", "title drought", "trophy drought", "win drought", "medal drought", "points drought", "hit drought", "home run drought", "run drought", "playoff drought", "victory drought", "championship drought", "drought-breaking win", "ended a drought", "end a drought", "ends drought", "ends the drought", "ended the drought", "broke a drought", "break a drought", "breaks drought", "breaks the drought", "siccità di gol", "astinenza da gol", "digiuno di gol"]
+    query: [drought, "water shortage", "water crisis", "dry spell", siccità, "crisi idrica", "emergenza idrica", "carenza d'acqua"]
+
+  landslide:
+    strong:
+      en: [landslide, landslides, mudslide, mudslides, "debris flow", "debris flows", rockfall, rockfalls, rockslide, rockslides, "land slide", "land slides", "mud slide", "mud slides", "hillside collapsed", "hillside collapse", "slope failure", "buried under mud", "buried by mud"]
+      it: [frana, frane, franato, franata, smottamento, smottamenti, "colata di fango", "colate di fango", "colata detritica", "colate detritiche", "caduta massi", "crollo di massi", "distacco di massi", "movimento franoso", "movimenti franosi", "frana di", "franamento"]
+    weak:
+      en: ["hillside", "slope", "mud"]
+      it: ["fango", "pendio", "versante"]
+    negative: ["landslide victory", "landslide win", "landslide wins", "won by a landslide", "wins by a landslide", "in a landslide", "landslide election", "landslide majority", "landslide defeat", "electoral landslide", "election landslide", "political landslide", "landslide result", "landslide for", "landslide over", "slide in the polls", "vittoria a valanga", "vince a valanga", "vinto a valanga", "frana elettorale", "frana politica", "frana nei sondaggi", "frana in borsa", "franano i titoli", "frana il titolo", "frana la borsa", "frana il governo"]
+    query: [landslide, landslides, mudslide, "debris flow", rockfall, frana, frane, smottamento, "colata di fango"]
+
+  volcano:
+    strong:
+      en: [volcano, volcanoes, volcanos, "volcanic eruption", "volcanic eruptions", "volcanic activity", "volcanic ash", erupts, erupted, erupting, eruption, eruptions, lava, "lava flow", "lava flows", "ash cloud", "ash clouds", "ash plume", "ash plumes", "ash fall", ashfall, pyroclastic, "lahar", "crater", "magma"]
+      it: [vulcano, vulcani, eruzione, eruzioni, "attività vulcanica", "cenere vulcanica", lava, "colata di lava", "colata lavica", "colate laviche", "nube di cenere", "nubi di cenere", "in eruzione", "fontana di lava", "fontane di lava", "attività stromboliana", "attività effusiva", "pioggia di cenere", "cratere", "magma"]
+    weak:
+      en: ["seismic swarm", "tremor"]
+      it: ["sciame sismico", "tremore vulcanico"]
+    negative: ["erupted in protest", "erupted in anger", "erupted in violence", "erupted into", "erupted in celebration", "erupted in cheers", "erupted in applause", "erupted with", "violence erupted", "protests erupted", "fighting erupted", "clashes erupted", "row erupted", "scandal erupted", "controversy erupted", "eruption of violence", "eruption of anger", "eruption of protest", "the crowd erupted", "crowd erupts", "fans erupted", "social media erupted", "twitter erupted", "internet erupted", "esplosa la protesta", "esplode la protesta", "è esplosa la polemica", "esplode la polemica", "eruzione di rabbia", "eruzione di proteste", "eruzione di violenza", "lava jato", "lavatrice", "lavaggio", "crater lake tour", "magma of"]
+    query: [volcano, eruption, "volcanic eruption", lava, "ash cloud", vulcano, eruzione, "nube di cenere", "colata di lava"]
+
+  earthquake:
+    strong:
+      en: [earthquake, earthquakes, quake, quakes, tremor, tremors, aftershock, aftershocks, "seismic activity", "magnitude", "richter", "epicenter", "epicentre", "seismologists", "seismological"]
+      it: [terremoto, terremoti, "scossa di terremoto", "scosse di terremoto", sisma, sismi, "scossa", "scosse", "sciame sismico", "magnitudo", "epicentro", "sismico", "sismica", "sismologi", "ingv"]
+    weak:
+      en: ["shaking", "felt across"]
+      it: ["tremare", "trema la terra", "paura tra la popolazione"]
+    negative: ["political earthquake", "electoral earthquake", "earthquake in the polls", "earthquake in the market", "market earthquake", "earthquake for the party", "earthquake in football", "earthquake in tennis", "quake in the polls", "polling quake", "send tremors through markets", "sent tremors through", "tremors through the market", "tremors in the market", "financial tremors", "political tremors", "aftershocks of the election", "aftershocks of the crisis", "aftershocks of the scandal", "aftershocks of brexit", "terremoto politico", "terremoto giudiziario", "terremoto elettorale", "terremoto in borsa", "terremoto nel partito", "terremoto societario", "terremoto nel governo", "terremoto nel calcio", "terremoto in casa", "terremoto finanziario", "terremoto nelle", "scossa politica", "scossa al governo", "scossa elettorale", "scossa di adrenalina", "scossa al mercato", "magnitude of the problem", "magnitude of the crisis", "magnitude of the challenge", "magnitude of the task", "magnitude of the loss", "order of magnitude", "orders of magnitude", "magnitudo della crisi", "epicentro della crisi", "epicentro della protesta", "epicentro dello scandalo", "epicentro del contagio", "epicentro della pandemia", "epicentre of the crisis", "epicentre of the protests", "epicenter of the crisis", "epicenter of the protests", "epicenter of the outbreak", "epicentre of the outbreak", "epicenter of the pandemic", "epicentre of the pandemic"]
+    query: [earthquake, quake, tremor, aftershock, "magnitude", terremoto, sisma, scossa, "scosse di terremoto"]
+
+  tsunami:
+    strong:
+      en: [tsunami, tsunamis, "tidal wave", "tidal waves", "tsunami warning", "tsunami alert", "tsunami advisory"]
+      it: [maremoto, maremoti, tsunami, "onda anomala", "onde anomale", "allerta tsunami", "allarme tsunami"]
+    weak:
+      en: ["giant wave", "giant waves"]
+      it: ["onda gigante", "onde giganti"]
+    negative: ["tsunami of", "a tsunami of", "tsunami di", "silver tsunami", "grey tsunami", "gray tsunami", "tsunami of lawsuits", "tsunami of cases", "tsunami of debt", "tsunami of data", "tsunami of votes", "tsunami of complaints", "tsunami of migrants", "tsunami of refugees", "tsunami politico", "tsunami elettorale", "tsunami giudiziario", "tsunami di ricorsi", "tsunami di critiche", "tsunami di polemiche", "tsunami finanziario"]
+    query: [tsunami, "tidal wave", maremoto, "onda anomala", "allerta tsunami"]
+
+# Country names in Italian and demonyms in both languages, keyed by ISO 3166-1 alpha-3. English country
+# names come from eww/data/countries.csv (every country); this list covers the countries that appear most
+# in the feeds and adds the Italian spelling GDELT needs to find Italian coverage. A hit in a document's
+# text gives the geocoder its country hint.
+countries:
+  ITA: {it: [Italia], demonyms: [Italian, Italians, italiano, italiana, italiani, italiane]}
+  ESP: {it: [Spagna], demonyms: [Spanish, Spaniards, spagnolo, spagnola, spagnoli, spagnole]}
+  FRA: {it: [Francia], demonyms: [French, francese, francesi]}
+  DEU: {it: [Germania], demonyms: [German, Germans, tedesco, tedesca, tedeschi, tedesche]}
+  PRT: {it: [Portogallo], demonyms: [Portuguese, portoghese, portoghesi]}
+  GRC: {it: [Grecia], demonyms: [Greek, Greeks, greco, greca, greci, greche]}
+  HRV: {it: [Croazia], demonyms: [Croatian, Croatians, Croat, Croats, croato, croata, croati, croate]}
+  SVN: {it: [Slovenia], demonyms: [Slovenian, Slovenians, Slovene, sloveno, slovena, sloveni]}
+  AUT: {it: [Austria], demonyms: [Austrian, Austrians, austriaco, austriaca, austriaci, austriache]}
+  CHE: {it: [Svizzera], demonyms: [Swiss, svizzero, svizzera, svizzeri, svizzere]}
+  GBR: {it: [Regno Unito, Gran Bretagna, Inghilterra, Scozia, Galles], demonyms: [British, Britons, English, Scottish, Welsh, britannico, britannica, britannici, inglese, inglesi, scozzese, scozzesi, gallese, gallesi]}
+  IRL: {it: [Irlanda], demonyms: [Irish, irlandese, irlandesi]}
+  NLD: {it: [Paesi Bassi, Olanda], demonyms: [Dutch, olandese, olandesi]}
+  BEL: {it: [Belgio], demonyms: [Belgian, Belgians, belga, belgi]}
+  POL: {it: [Polonia], demonyms: [Polish, Poles, polacco, polacca, polacchi, polacche]}
+  CZE: {it: [Repubblica Ceca, Cechia], demonyms: [Czech, Czechs, ceco, ceca, cechi, ceche]}
+  HUN: {it: [Ungheria], demonyms: [Hungarian, Hungarians, ungherese, ungheresi]}
+  ROU: {it: [Romania], demonyms: [Romanian, Romanians, romeno, romena, romeni, rumeno, rumeni]}
+  BGR: {it: [Bulgaria], demonyms: [Bulgarian, Bulgarians, bulgaro, bulgara, bulgari]}
+  SRB: {it: [Serbia], demonyms: [Serbian, Serbians, Serb, Serbs, serbo, serba, serbi]}
+  BIH: {it: [Bosnia ed Erzegovina, Bosnia], demonyms: [Bosnian, Bosnians, bosniaco, bosniaca, bosniaci]}
+  ALB: {it: [Albania], demonyms: [Albanian, Albanians, albanese, albanesi]}
+  TUR: {it: [Turchia], demonyms: [Turkish, Turks, turco, turca, turchi, turche]}
+  UKR: {it: [Ucraina], demonyms: [Ukrainian, Ukrainians, ucraino, ucraina, ucraini, ucraine]}
+  RUS: {it: [Russia], demonyms: [Russian, Russians, russo, russa, russi, russe]}
+  NOR: {it: [Norvegia], demonyms: [Norwegian, Norwegians, norvegese, norvegesi]}
+  SWE: {it: [Svezia], demonyms: [Swedish, Swedes, svedese, svedesi]}
+  FIN: {it: [Finlandia], demonyms: [Finnish, Finns, finlandese, finlandesi]}
+  DNK: {it: [Danimarca], demonyms: [Danish, Danes, danese, danesi]}
+  ISL: {it: [Islanda], demonyms: [Icelandic, Icelanders, islandese, islandesi]}
+  USA: {it: [Stati Uniti, USA], demonyms: [American, Americans, americano, americana, americani, americane, statunitense, statunitensi]}
+  CAN: {it: [Canada], demonyms: [Canadian, Canadians, canadese, canadesi]}
+  MEX: {it: [Messico], demonyms: [Mexican, Mexicans, messicano, messicana, messicani, messicane]}
+  GTM: {it: [Guatemala], demonyms: [Guatemalan, Guatemalans, guatemalteco, guatemaltechi]}
+  HND: {it: [Honduras], demonyms: [Honduran, Hondurans, honduregno, honduregni]}
+  NIC: {it: [Nicaragua], demonyms: [Nicaraguan, Nicaraguans, nicaraguense, nicaraguensi]}
+  SLV: {it: [El Salvador], demonyms: [Salvadoran, Salvadorans, salvadoregno, salvadoregni]}
+  CUB: {it: [Cuba], demonyms: [Cuban, Cubans, cubano, cubana, cubani]}
+  HTI: {it: [Haiti], demonyms: [Haitian, Haitians, haitiano, haitiana, haitiani]}
+  DOM: {it: [Repubblica Dominicana], demonyms: [Dominican, Dominicans, dominicano, dominicana, dominicani]}
+  JAM: {it: [Giamaica], demonyms: [Jamaican, Jamaicans, giamaicano, giamaicani]}
+  PRI: {it: [Porto Rico, Portorico], demonyms: [Puerto Rican, Puerto Ricans, portoricano, portoricani]}
+  BHS: {it: [Bahamas], demonyms: [Bahamian, Bahamians, bahamense, bahamensi]}
+  BLZ: {it: [Belize], demonyms: [Belizean, Belizeans]}
+  COL: {it: [Colombia], demonyms: [Colombian, Colombians, colombiano, colombiana, colombiani]}
+  VEN: {it: [Venezuela], demonyms: [Venezuelan, Venezuelans, venezuelano, venezuelana, venezuelani]}
+  ECU: {it: [Ecuador], demonyms: [Ecuadorian, Ecuadorians, Ecuadorean, ecuadoriano, ecuadoriani]}
+  PER: {it: [Perù], demonyms: [Peruvian, Peruvians, peruviano, peruviana, peruviani]}
+  BOL: {it: [Bolivia], demonyms: [Bolivian, Bolivians, boliviano, boliviana, boliviani]}
+  BRA: {it: [Brasile], demonyms: [Brazilian, Brazilians, brasiliano, brasiliana, brasiliani, brasiliane]}
+  ARG: {it: [Argentina], demonyms: [Argentine, Argentines, Argentinian, Argentinians, argentino, argentina, argentini]}
+  CHL: {it: [Cile], demonyms: [Chilean, Chileans, cileno, cilena, cileni]}
+  PRY: {it: [Paraguay], demonyms: [Paraguayan, Paraguayans, paraguaiano, paraguaiani]}
+  URY: {it: [Uruguay], demonyms: [Uruguayan, Uruguayans, uruguaiano, uruguaiani]}
+  CHN: {it: [Cina], demonyms: [Chinese, cinese, cinesi]}
+  TWN: {it: [Taiwan], demonyms: [Taiwanese, taiwanese, taiwanesi]}
+  JPN: {it: [Giappone], demonyms: [Japanese, giapponese, giapponesi]}
+  KOR: {it: [Corea del Sud], demonyms: [South Korean, South Koreans, Korean, Koreans, sudcoreano, sudcoreani, coreano, coreani]}
+  PRK: {it: [Corea del Nord], demonyms: [North Korean, North Koreans, nordcoreano, nordcoreani]}
+  PHL: {it: [Filippine], demonyms: [Filipino, Filipinos, Philippine, filippino, filippina, filippini, filippine]}
+  VNM: {it: [Vietnam], demonyms: [Vietnamese, vietnamita, vietnamiti]}
+  THA: {it: [Thailandia, Tailandia], demonyms: [Thai, Thais, thailandese, thailandesi, tailandese, tailandesi]}
+  KHM: {it: [Cambogia], demonyms: [Cambodian, Cambodians, cambogiano, cambogiana, cambogiani]}
+  LAO: {it: [Laos], demonyms: [Lao, Laotian, Laotians, laotiano, laotiani]}
+  MMR: {it: [Myanmar, Birmania], demonyms: [Burmese, Myanmar, birmano, birmana, birmani]}
+  MYS: {it: [Malesia, Malaysia], demonyms: [Malaysian, Malaysians, malese, malesi]}
+  IDN: {it: [Indonesia], demonyms: [Indonesian, Indonesians, indonesiano, indonesiana, indonesiani]}
+  SGP: {it: [Singapore], demonyms: [Singaporean, Singaporeans]}
+  IND: {it: [India], demonyms: [Indian, Indians, indiano, indiana, indiani, indiane]}
+  PAK: {it: [Pakistan], demonyms: [Pakistani, Pakistanis, pakistano, pakistana, pakistani, pachistano, pachistani]}
+  BGD: {it: [Bangladesh], demonyms: [Bangladeshi, Bangladeshis, bengalese, bengalesi]}
+  NPL: {it: [Nepal], demonyms: [Nepali, Nepalis, Nepalese, nepalese, nepalesi]}
+  LKA: {it: [Sri Lanka], demonyms: [Sri Lankan, Sri Lankans, singalese, singalesi, srilankese, srilankesi]}
+  AFG: {it: [Afghanistan], demonyms: [Afghan, Afghans, afghano, afghana, afghani, afgano, afgani]}
+  IRN: {it: [Iran], demonyms: [Iranian, Iranians, iraniano, iraniana, iraniani]}
+  IRQ: {it: [Iraq], demonyms: [Iraqi, Iraqis, iracheno, irachena, iracheni]}
+  SYR: {it: [Siria], demonyms: [Syrian, Syrians, siriano, siriana, siriani]}
+  LBN: {it: [Libano], demonyms: [Lebanese, libanese, libanesi]}
+  ISR: {it: [Israele], demonyms: [Israeli, Israelis, israeliano, israeliana, israeliani]}
+  SAU: {it: [Arabia Saudita], demonyms: [Saudi, Saudis, saudita, sauditi]}
+  YEM: {it: [Yemen], demonyms: [Yemeni, Yemenis, yemenita, yemeniti]}
+  OMN: {it: [Oman], demonyms: [Omani, Omanis, omanita, omaniti]}
+  ARE: {it: [Emirati Arabi Uniti, Emirati], demonyms: [Emirati, Emiratis, emiratino, emiratini]}
+  KAZ: {it: [Kazakistan], demonyms: [Kazakh, Kazakhs, kazako, kazaki]}
+  UZB: {it: [Uzbekistan], demonyms: [Uzbek, Uzbeks, uzbeko, uzbeki]}
+  MNG: {it: [Mongolia], demonyms: [Mongolian, Mongolians, mongolo, mongoli]}
+  AUS: {it: [Australia], demonyms: [Australian, Australians, australiano, australiana, australiani, australiane]}
+  NZL: {it: [Nuova Zelanda], demonyms: [New Zealander, New Zealanders, Kiwi, Kiwis, neozelandese, neozelandesi]}
+  PNG: {it: [Papua Nuova Guinea], demonyms: [Papua New Guinean, Papua New Guineans, papuano, papuani]}
+  FJI: {it: [Figi, Fiji], demonyms: [Fijian, Fijians, figiano, figiani]}
+  VUT: {it: [Vanuatu], demonyms: [Vanuatuan, Vanuatuans]}
+  EGY: {it: [Egitto], demonyms: [Egyptian, Egyptians, egiziano, egiziana, egiziani]}
+  LBY: {it: [Libia], demonyms: [Libyan, Libyans, libico, libica, libici]}
+  TUN: {it: [Tunisia], demonyms: [Tunisian, Tunisians, tunisino, tunisina, tunisini]}
+  DZA: {it: [Algeria], demonyms: [Algerian, Algerians, algerino, algerina, algerini]}
+  MAR: {it: [Marocco], demonyms: [Moroccan, Moroccans, marocchino, marocchina, marocchini]}
+  SDN: {it: [Sudan], demonyms: [Sudanese, sudanese, sudanesi]}
+  SSD: {it: [Sud Sudan], demonyms: [South Sudanese, sudsudanese, sudsudanesi]}
+  ETH: {it: [Etiopia], demonyms: [Ethiopian, Ethiopians, etiope, etiopi]}
+  ERI: {it: [Eritrea], demonyms: [Eritrean, Eritreans, eritreo, eritrea, eritrei]}
+  SOM: {it: [Somalia], demonyms: [Somali, Somalis, somalo, somala, somali]}
+  KEN: {it: [Kenya, Kenia], demonyms: [Kenyan, Kenyans, keniano, keniana, keniani, keniota, kenioti]}
+  UGA: {it: [Uganda], demonyms: [Ugandan, Ugandans, ugandese, ugandesi]}
+  TZA: {it: [Tanzania], demonyms: [Tanzanian, Tanzanians, tanzaniano, tanzaniani]}
+  RWA: {it: [Ruanda, Rwanda], demonyms: [Rwandan, Rwandans, ruandese, ruandesi]}
+  BDI: {it: [Burundi], demonyms: [Burundian, Burundians, burundese, burundesi]}
+  COD: {it: [Repubblica Democratica del Congo, Congo], demonyms: [Congolese, congolese, congolesi]}
+  COG: {it: [Repubblica del Congo, Congo-Brazzaville], demonyms: [Congolese]}
+  CMR: {it: [Camerun], demonyms: [Cameroonian, Cameroonians, camerunese, camerunesi]}
+  NGA: {it: [Nigeria], demonyms: [Nigerian, Nigerians, nigeriano, nigeriana, nigeriani]}
+  NER: {it: [Niger], demonyms: [Nigerien, Nigeriens, nigerino, nigerini]}
+  TCD: {it: [Ciad], demonyms: [Chadian, Chadians, ciadiano, ciadiani]}
+  MLI: {it: [Mali], demonyms: [Malian, Malians, maliano, maliani]}
+  BFA: {it: [Burkina Faso], demonyms: [Burkinabe, Burkinabè, burkinabé]}
+  SEN: {it: [Senegal], demonyms: [Senegalese, senegalese, senegalesi]}
+  GIN: {it: [Guinea], demonyms: [Guinean, Guineans, guineano, guineani]}
+  SLE: {it: [Sierra Leone], demonyms: [Sierra Leonean, Sierra Leoneans]}
+  LBR: {it: [Liberia], demonyms: [Liberian, Liberians, liberiano, liberiani]}
+  CIV: {it: [Costa d'Avorio], demonyms: [Ivorian, Ivorians, ivoriano, ivoriani]}
+  GHA: {it: [Ghana], demonyms: [Ghanaian, Ghanaians, ghanese, ghanesi]}
+  TGO: {it: [Togo], demonyms: [Togolese, togolese, togolesi]}
+  BEN: {it: [Benin], demonyms: [Beninese, beninese, beninesi]}
+  AGO: {it: [Angola], demonyms: [Angolan, Angolans, angolano, angolani]}
+  ZMB: {it: [Zambia], demonyms: [Zambian, Zambians, zambiano, zambiani]}
+  ZWE: {it: [Zimbabwe], demonyms: [Zimbabwean, Zimbabweans, zimbabwiano, zimbabwiani]}
+  MWI: {it: [Malawi], demonyms: [Malawian, Malawians, malawiano, malawiani]}
+  MOZ: {it: [Mozambico], demonyms: [Mozambican, Mozambicans, mozambicano, mozambicani]}
+  MDG: {it: [Madagascar], demonyms: [Malagasy, Madagascan, Madagascans, malgascio, malgasci]}
+  ZAF: {it: [Sudafrica, Sud Africa], demonyms: [South African, South Africans, sudafricano, sudafricana, sudafricani]}
+  NAM: {it: [Namibia], demonyms: [Namibian, Namibians, namibiano, namibiani]}
+  BWA: {it: [Botswana], demonyms: [Botswanan, Batswana, Motswana]}
+  LSO: {it: [Lesotho], demonyms: [Basotho, Mosotho]}
+  SWZ: {it: [Eswatini, Swaziland], demonyms: [Swazi, Swazis]}
+  MUS: {it: [Mauritius], demonyms: [Mauritian, Mauritians, mauriziano, mauriziani]}
+  REU: {it: [Riunione, Réunion], demonyms: [Réunionese, Reunionese]}
+  COM: {it: [Comore], demonyms: [Comorian, Comorians, comoriano, comoriani]}
+  MRT: {it: [Mauritania], demonyms: [Mauritanian, Mauritanians, mauritano, mauritani]}
+  CPV: {it: [Capo Verde], demonyms: [Cape Verdean, Cape Verdeans, capoverdiano, capoverdiani]}

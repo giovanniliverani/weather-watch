@@ -36,7 +36,7 @@ def test_title_tokens_ignore_numbers_and_stopwords():
 
 
 def test_title_similarity_hook_rejects_unknown_methods(monkeypatch):
-    monkeypatch.setattr(config, "TITLE_SIMILARITY", "embedding")
+    monkeypatch.setattr(config, "TITLE_SIMILARITY", "levenshtein")
     with pytest.raises(NotImplementedError):
         matching.title_similarity("a", "b")
 

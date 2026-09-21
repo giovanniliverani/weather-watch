@@ -75,14 +75,14 @@ The document was written under rules that are load-bearing, not stylistic. Keep 
 - **Uncertainty is marked, not smoothed.** Anything you did not verify today gets **verify** and an entry in §7.
 - **The user's constraints are fixed**, unless they say otherwise: one part-time developer, Python and SQL only with no JavaScript or CSS, a hard €25/month ceiling, localhost first, low ops appetite, no terms-of-service violations. A change that breaches one of these is not an edit to make quietly — flag it.
 
-When a milestone is finished, mark it rather than deleting it. The record of what was tested and what it cost is the most valuable thing the document accumulates:
+When a milestone is finished, mark it rather than deleting it. The record of what was tested and what it cost is the most valuable thing the document accumulates. Check that the milestone's own document exists first — one per milestone, `docs/m<N>.md`, written by the command that measures it (`eww report density`, `eww report volume`, `eww report identity`, `eww eval attachments`) — because §4's numbers should be the ones that file reports:
 
 ```markdown
 ### M0 — Real events on a local map (small) — DONE 2026-09-24
 
 **Result.** 62 events in 30 days, 5 hazard types, 5 continents, 4 non-wildfire European
 events. Density bar passed, so the anchored-feeds bet holds and news-driven discovery
-stays in §5. Exit criteria 1–5 all met; see docs/m0-density.md.
+stays in §5. Exit criteria 1–5 all met; see docs/m0.md.
 ```
 
 ## Step 4 — Sweep for consistency

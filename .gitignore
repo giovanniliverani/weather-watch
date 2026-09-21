@@ -21,6 +21,8 @@ Thumbs.db
 /data/*
 !/data/labels/
 /data-branch/
+# M3: the structured provider log (eww doctor reads it), the model cache lives under data/
+/logs/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
