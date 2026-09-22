@@ -54,6 +54,24 @@ transcript is not finished.
   (`.claude/skills/playbook/files/rebuild-database.py`) or, for attachments,
   `eww --db data/copy.sqlite attach --rebuild` on a copy.
 
+## Behind a TLS-inspecting proxy
+
+On a corporate laptop a proxy such as Zscaler re-signs every HTTPS connection with its own root.
+Windows trusts that root, Python's bundled certifi roots do not, so every call fails with
+`CERTIFICATE_VERIFY_FAILED` while the browser on the same machine works. Trust the proxy's root as
+well; never turn verification off and never route around the proxy, which on a work machine is a
+policy matter, not a technical one.
+
+```bash
+# export the corporate root(s) from the Windows store, then combine with certifi's
+powershell -Command "Get-ChildItem Cert:\LocalMachine\Root, Cert:\CurrentUser\Root | Where-Object { $_.Subject -match 'Zscaler' } | Sort-Object Thumbprint -Unique | ForEach-Object { '-----BEGIN CERTIFICATE-----'; [Convert]::ToBase64String($_.RawData, 'InsertLineBreaks'); '-----END CERTIFICATE-----' }" > corporate-roots.pem
+uv run python -c "import certifi,pathlib; pathlib.Path('ca-bundle.pem').write_text(pathlib.Path(certifi.where()).read_text()+open('corporate-roots.pem').read())"
+```
+
+`ca-bundle.pem` at the repository root is picked up automatically (`config.CA_BUNDLE`, or set
+`EWW_CA_BUNDLE`); both files are gitignored because they are machine-specific. `eww doctor` prints
+which bundle is in force. Symptom to recognise: `curl` works and Python does not.
+
 ## Cost
 
 Free tiers and local components only, under a hard ceiling of about €25 a month. Flag the cost before

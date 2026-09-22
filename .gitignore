@@ -21,6 +21,9 @@ Thumbs.db
 /data/*
 !/data/labels/
 /data-branch/
+# A CA bundle for a TLS-inspecting corporate proxy: machine-specific, never committed.
+/ca-bundle.pem
+/corporate-roots.pem
 # M3: the structured provider log (eww doctor reads it), the model cache lives under data/
 /logs/
 *.sqlite

@@ -22,6 +22,23 @@ VERSION = "0.1"
 CONTACT = os.getenv("EWW_CONTACT", "https://github.com/giovanniliverani/weather-watch")
 USER_AGENT = f"extreme-weather-watch/{VERSION} (+{CONTACT})"
 
+# --------------------------------------------------------------------------- TLS trust
+# A proxy that inspects TLS (Zscaler and the like on a corporate laptop) re-signs every connection with
+# its own root. Windows trusts that root, Python's bundled certifi roots do not, so every HTTPS call
+# fails with CERTIFICATE_VERIFY_FAILED while a browser on the same machine is fine. The fix is to trust
+# the proxy's root as well: put a PEM holding certifi's roots plus the corporate one at the repository
+# root as `ca-bundle.pem`, or point EWW_CA_BUNDLE at it. Certificate verification stays ON; this widens
+# who may sign, it never skips the check. `eww doctor` prints which bundle is in force.
+CA_BUNDLE_DEFAULT = PROJECT_ROOT / "ca-bundle.pem"
+_ca_bundle = os.getenv("EWW_CA_BUNDLE")
+CA_BUNDLE: Path | None = Path(_ca_bundle) if _ca_bundle else (CA_BUNDLE_DEFAULT if CA_BUNDLE_DEFAULT.exists() else None)
+
+
+def verify_arg() -> str | bool:
+    """What every httpx client passes as `verify=`: a CA bundle path when one is configured, else True."""
+    return str(CA_BUNDLE) if CA_BUNDLE else True
+
+
 # --------------------------------------------------------------------------- paths
 DATA_DIR = Path(os.getenv("EWW_DATA_DIR", str(PROJECT_ROOT / "data")))
 DB_PATH = Path(os.getenv("EWW_DB_PATH", str(DATA_DIR / "eww.sqlite")))

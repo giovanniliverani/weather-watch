@@ -389,6 +389,8 @@ def _doctor_m3(conn, now, log_days: int) -> None:
     ]
     typer.echo("rate limits (M3 exit criterion 3): " + "; ".join(f"{name}: {'PASS' if ok else 'FAIL'}" for name, ok in checks))
     typer.echo(f"model cache: {config.MODEL_DIR} ({'present' if config.MODEL_DIR.exists() else 'not downloaded yet'}); logs: {config.LOG_DIR}")
+    typer.echo(f"TLS: certificates verified against {config.CA_BUNDLE or 'the bundled certifi roots'}"
+               + ("" if config.CA_BUNDLE else "; set EWW_CA_BUNDLE or drop ca-bundle.pem at the repository root if a proxy inspects TLS"))
 
 
 # ----------------------------------------------------------------------------- M3: enrichment, extraction, embeddings, attachment

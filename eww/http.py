@@ -33,6 +33,7 @@ def client(timeout: float | None = None) -> httpx.Client:
         },
         timeout=timeout or config.HTTP_TIMEOUT_S,
         follow_redirects=True,
+        verify=config.verify_arg(),  # a corporate TLS-inspecting proxy needs its root trusted (config.CA_BUNDLE)
     )
 
 
