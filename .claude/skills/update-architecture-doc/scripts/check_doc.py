@@ -28,7 +28,7 @@ EXPECTED_SECTIONS = [
     "## 7. Open questions",
 ]
 MAX_SUMMARY_WORDS = 200
-MAX_MILESTONES = 7
+MAX_MILESTONES = None  # the owner lifted the seven-milestone ceiling on 2026-09-22 when adding M7 (React frontend)
 
 # Narrow on purpose: "3 consecutive days" in an exit criterion is legitimate,
 # "3 days of work" is the banned estimate.
@@ -111,8 +111,8 @@ def main() -> int:
         if (m := re.match(r"### M(\d+)\b", line))
     ]
     ids = [n for n, _ in ms_heads]
-    if len(ids) > MAX_MILESTONES:
-        fail(f"{len(ids)} milestones, ceiling is {MAX_MILESTONES} (M0-M6)")
+    if MAX_MILESTONES is not None and len(ids) > MAX_MILESTONES:
+        fail(f"{len(ids)} milestones, ceiling is {MAX_MILESTONES}")
     if ids != sorted(set(ids)):
         fail(f"milestone ids are not unique and ascending: {ids}")
     for pos, (num, start) in enumerate(ms_heads):
@@ -144,7 +144,7 @@ def main() -> int:
     # --- numbers for a human to judge -------------------------------------
     note(f"{len(text.split())} words, {len(lines)} lines, {len(found)} top-level sections")
     note(f"§0 summary: {summary_words}/{MAX_SUMMARY_WORDS} words")
-    note(f"§4 milestones: {len(ids)}/{MAX_MILESTONES} ({', '.join('M%d' % n for n in ids)})")
+    note(f"§4 milestones: {len(ids)} ({', '.join('M%d' % n for n in ids)}); no ceiling since 2026-09-22")
 
     dec = body(lines, sections, "## 1. Decisions")
     rows = [

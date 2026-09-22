@@ -1,6 +1,6 @@
 # Extreme Weather Watch: architecture and sequencing
 
-*Written 2026-09-16, last updated 2026-09-17 after M0, the M1 build and the M2 build, against the README and constraints in `docs/planning-prompt.md`. Facts about third-party services were checked against their official pages on those dates; anything marked **verify** is either unconfirmed or likely to change.*
+*Written 2026-09-16, last updated 2026-09-22 after M0, the M1, M2 and M3 builds and the scope decisions of 2026-09-22, against the README and constraints in `docs/planning-prompt.md`. Facts about third-party services were checked against their official pages on those dates; anything marked **verify** is either unconfirmed or likely to change.*
 
 ## 0. Summary
 
@@ -12,7 +12,7 @@
 
 | Decision | Choice | Why | What would change my mind |
 |---|---|---|---|
-| Language and runtime | Python 3.12 with uv; one package `eww` with a CLI (`uv run eww <command>`) | It is the language you have, and every component has a mature Python library. uv is already on your machine and gives a lockfile without Docker. | Nothing in v1. |
+| Language and runtime | Python 3.12 with uv; one package `eww` with a CLI (`uv run eww <command>`) for everything that touches data. **From M7 the frontend is React** (TypeScript, Vite, MapLibre) in `web/` and nowhere else, reading only `GET /events.geojson`; decided by you on 2026-09-22 | Python is the language you have, and every pipeline component has a mature library. The map deserves a real frontend, and §2's GeoJSON boundary was drawn so that adding one touches nothing behind it; the `impeccable` and `react-best-practices` skills in the repository carry the design and performance judgement you do not yet have in JavaScript. | Nothing in v1 for the pipeline. For the frontend: if the first JavaScript project costs more than the map gains, M7 stops at `eww serve` and the Streamlit viewer stays. |
 | Database | SQLite in WAL mode with STRICT tables, one file; geometry as GeoJSON text plus bbox columns; embeddings as float32 BLOBs compared in numpy | Zero install, zero ops; a single writer matches a single user; the file is rebuildable from the data branch. At tens of thousands of rows it needs neither a spatial nor a vector index. | A second writer (contributions), a hosted API with concurrent writes, or polygon predicates → Postgres + PostGIS + pgvector on Neon (0.5 GB and 100 compute-hours free, verified) using the portable DDL in §3. |
 | Local development setup | uv project; `.env` holding the three optional secrets (Bluesky app password, YouTube key, Anthropic key); `uv run eww sync` then `uv run streamlit run app.py`; no Docker, no services, no Postgres | Two commands and one file to back up; everything runs as your user; Ollama is already installed. | Never for v1. |
 | Scheduling and the laptop problem | GitHub Actions cron at `7 */3 * * *` runs the keyless spine collectors (GDACS, EONET, Copernicus EMS) and commits snapshots plus a run log to an orphan `data` branch using `GITHUB_TOKEN`; the laptop replays unseen snapshots and runs the enrichment collectors with time-range backfill | Free (about 360 of the 2,000 included minutes), no server, no secrets stored in GitHub, and the snapshots are the raw archive. Every enrichment source accepts a time range, so laptop gaps are recoverable. | Snapshot growth above about 5 MB/day packed → switch the sink to Cloudflare R2. Wanting an always-fresh hosted database → Actions writing to Neon. |
@@ -20,7 +20,7 @@
 | Map rendering and viewer | Streamlit + streamlit-folium (Leaflet), one process; MarkerCluster, coloured circle markers by hazard, footprint polygons, LocateControl for "centre on me"; details in the sidebar on click; filters as Streamlit widgets | Zero JavaScript and zero CSS. Click handling, clustering and browser geolocation come from plugins; current versions (folium 0.20, streamlit-folium 0.27, verified) support partial re-render so the map does not reset on every widget change. | Sluggish beyond a few thousand markers → pydeck, still Python. You decide to learn JavaScript → MapLibre reading the same GeoJSON. |
 | Interface boundary | A GeoJSON FeatureCollection from `eww.api.events_geojson(filters)`, exported by CLI from M0 and served by FastAPI in M6 (§2 has the contract) | Any web map can read it; it forces all logic below the boundary; it is testable in geojson.io with no code. | None. |
 | Source spine | GDACS (JSON SEARCH API, RSS as fallback), NASA EONET v3 and, since M2, Copernicus EMS Rapid Mapping activations (the public activations list, about 8 per 30 days) create events; a Copernicus activation joins the GDACS event its `gdacsId` names when it has one and sets the EMS severity flag either way | Free, keyless, typed hazard codes, stable ids with episodes, coordinates, alert levels, GLIDE numbers, and permissive licences (GDACS CC BY 4.0, NASA public domain, Copernicus open by EU regulation, all verified; the licence page cited in the `source` seed is marked **verify** in §7). Deterministic discovery is what makes the budget work; 8 of 9 activations in the 30-day window of 2026-09-17 had no GDACS twin, so an activation must be allowed to be an event. | M0's density check fails for weather hazards → bring orphan clustering forward and add Meteoalarm (CC BY 4.0, verified) as a warnings layer. |
-| Enrichment sources | GDELT DOC 2.0 with event-driven queries at one request per 5 s; ReliefWeb reports after a free appname approval; Bluesky authenticated search; YouTube Data API; Mastodon tag timelines. Links and metadata only | Free; terms permit personal non-commercial use; all support time-range queries so the laptop can backfill. GDELT supplies `socialimage`, a free thumbnail reference for every headline. | A source's terms change the way the Guardian's did (AI clause, 24-hour retention) → drop it. GDELT outage → publisher RSS feeds, chosen one by one on their terms. |
+| Enrichment sources | **Parked with M3 on 2026-09-22; collection is not the priority.** What exists: a GDELT DOC 2.0 collector (built, best-effort only: 3 events a run, 15 s apart, 24 h of silence after a 429) and a ReliefWeb reports collector (built, deferred until you request an appname). The recorded path for news later: GDELT's **Web NGrams table of contents**, a static file every 15 minutes (478 KB, about 3,160 articles with url, title, date, language and an image reference on 92%; no key, no rate limit, files kept a week or more), filtered by the lexicon (1.1% of titles, about 3,300 a day) and classified into the hazard schema by **typesafe.ai's Jev** (structured, calibrated outputs; §7). The 11.9 MB quadgram file is out. Bluesky, YouTube, Mastodon unchanged for M5 | The DOC API's real tolerance is a fraction of its documented one request per 5 s and its blocks outlast any retry interval, measured by others on 2026-07-27 and here on 2026-09-21/22 from four networks; it cannot be a dependency. The TOC is what GDELT itself tells heavy users to use, and it carries the thumbnail that made GDELT attractive. | A working ReliefWeb appname, or the NGrams path built, reopens M3's measurement. A source's terms change the way the Guardian's did → drop it. |
 | Dropped sources | X, Instagram, TikTok, Facebook, Telegram, Google News RSS, Guardian Open Platform, NewsAPI, NYT, browser automation of any kind | X is pay-per-read only; Instagram and TikTok need business accounts or institutional approval; Google News RSS is licensed for personal feed readers only; the Guardian bars AI use and retention over 24 h; NewsAPI's free tier is development-only with a 24 h delay; browser automation is where terms-of-service exposure lives. | X at $0.005 per read for at most 1,000 reads a month, later, if you decide the value is there. |
 | Geocoding | Tier 0: coordinates from the feeds. Tier 1: local GeoNames `cities500` gazetteer with full-text search. Tier 2: GeoNames web service (10,000 credits/day with a free username, verified). Tier 3: Nominatim at 4 requests/minute, which is its stated limit for scripts run on a schedule (verified), for streets and landmarks only. Every hit and every miss cached forever | Deterministic, free, and offline for most place names in news about disasters (towns, provinces, countries). Nominatim's scheduled-script limit rules it out as the primary. | Miss rate above 20% on the review sample → load GeoNames `allCountries` locally (about 1.5 GB) or self-host Photon. |
 | Clustering approach | Anchored identity (§3): feed ids create events; deterministic cross-source keys (Copernicus `gdacsId`, the GDACS URL EONET cites) join before any score; cross-source merge by hazard-class blocking, hazard-specific radius and time window, GLIDE and storm-name equality; auto-merge at 0.90, review queue 0.60–0.90; **two feeds' records share a pin automatically only inside the aggregation radius of `identity.yaml`** (25 km by default, 200 km for cyclones, 100 km for severe storms, 250 km for drought and temperature extremes; closest pair of positions), a shared id or GLIDE included, otherwise a proposal; a named storm blocks basin-wide (5,000 km) and merges on its name, two differently named storms never merge automatically, a pair one feed keys apart is never scored, an event is re-scored when a later record of its own arrives, and a merge a person reverted is never repeated by the pipeline; documents attach at 0.75 on a spatial, temporal and embedding score and never create events | Bounded, deterministic where it matters, every signal free. The two asymmetries (§3) are handled by conservatism and reversibility rather than by a smarter model. A cited id is strong evidence but not proof: on 2026-09-17 GDACS had reused wildfire ids, so EONET items citing them pointed at fires on other continents; the radius is what caught it. Measured the same day after the gate: 913 records joined by key inside the radius, 14 automatic merges, 39 proposals of which 27 kept apart by the radius, 0 false merges and 83% recall on the 48 labelled pairs. | Any wrong auto-merge on the labelled pairs → raise the threshold or shrink the radius. Recall below 60% → lower the review threshold, never the auto threshold. Two same-named storms inside 10 days and 5,000 km → require the basin to match or lower `named_storm_km`. Correct pairs piling up as proposals for one hazard → widen that hazard's radius in `identity.yaml`, never the default. |
@@ -119,7 +119,9 @@ Everything free is marked free. Euro figures assume $1 ≈ €0.90; check the ra
 | SQLite, Python 3.12, uv, Streamlit, folium, streamlit-folium, sentence-transformers, spaCy, numpy | Free | Open source, local | Versions verified |
 | Ollama + qwen2.5:7b-instruct (local extraction and summaries) | Free | Already installed on your machine; 24 GB RAM is ample for a 7–8B model | Verified installed |
 | GDACS, NASA EONET, ReliefWeb API | Free | No keys; ReliefWeb asks for an `appname` parameter | Terms: **verify** (see §7) |
-| GDELT DOC 2.0 API | Free | No key; polite spacing between calls | Rate limit is informal: **verify** |
+| GDELT DOC 2.0 API | Free | No key. Measured 2026-09-21/22: HTTP 429 to every request from four networks over 22 hours; third-party measurements of 2026-07-27 report 1 request of 7 succeeding at 6-second spacing and blocks that retries prolong. Best-effort only | Measured; unusable as a dependency |
+| GDELT Web NGrams table of contents | Free | Static files on data.gdeltproject.org, 478 KB per 15 minutes (46 MB a day), no key, no rate limit; the quadgram file (1.1 GB a day) is excluded | Measured 2026-09-22; path `gdeltv5/weblegacy` described as transitional: **verify** |
+| typesafe.ai Jev (structured classification of NGrams titles; recorded for later) | ≈ €0.15 at 3,300 titles a day: input $0.042 per million tokens, output free (blog 2026-09-15) | Hosted API in early access; outputs constrained to a schema you define, with calibrated probabilities, 70 to 500 ms | Availability, terms and whether a personal project qualifies: **verify** |
 | GeoNames gazetteer download | Free | CC BY 4.0, attribution shown in the app | Verify licence text |
 | Nominatim public API | Free | ≤ 1 request/second, identifying User-Agent, results cached locally | Policy wording: **verify** |
 | Bluesky (your account + an app password), Mastodon | Free | Post search requires authentication (public endpoint returned 403 today); 3,000 requests / 5 min per IP on the PDS | Verified |
@@ -218,7 +220,7 @@ At this prompt shape Sonnet 5 with caching costs the same as Haiku 4.5 without i
 | Storage engine | SQLite, WAL mode | Postgres + PostGIS + pgvector (Neon or Supabase) when a second writer appears | `db.py` connection and placeholder style; the DDL in §3 is written to be portable |
 | Extractor backend | Ollama on the laptop | Claude through the Batch API | One class behind the `Extractor` interface; the ledger and the cap are shared |
 | Geocoder provider | Local gazetteer, GeoNames web service, Nominatim | Self-hosted Photon, or a paid provider | One class behind the `Geocoder` interface; `geocode_cache` is provider-keyed and stays |
-| Viewer | Streamlit + folium reading `events_geojson()` in-process | Any web map (MapLibre, Leaflet, deck.gl) reading `GET /events.geojson` | Nothing in the pipeline. The FastAPI wrapper is about 30 lines |
+| Viewer | Streamlit + folium reading `events_geojson()` in-process | **Decided 2026-09-22: a React + MapLibre map in `web/` reading `GET /events.geojson`, `/events/{id}/documents` and `/attributions` from `eww serve` (M7)** | Nothing in the pipeline. The FastAPI wrapper is about 30 lines; the frontend holds no data logic |
 
 **The GeoJSON contract, the interface you must protect**
 
@@ -672,7 +674,7 @@ attach_document(doc):
 
 **The riskiest assumption in the plan** is that free authoritative feeds alone put enough real events on the map, at the freshness target, for it to feel alive for *weather* hazards, with news reduced to a garnish. If that is wrong, the design must lean on news-driven discovery much earlier, which changes both the clustering problem and the cost profile. M0 is the cheapest possible test: no scheduler, no news, no model, and it ends with a number and a decision rule. The second risk, attachment precision from headlines alone, is tested in M3, which is also the milestone most likely to overrun.
 
-Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medium, M6 small. Every milestone ends with something you can look at, query or click, and with **one record in `docs/m<N>.md`** — `docs/m0.md` for M0, `docs/m3.md` for M3 — written by the command that measures that milestone (`eww report density`, `eww report volume`, `eww report identity`, `eww eval attachments`), so the measured numbers outlive the session that produced them. `eww/config.py` keeps the naming rule as `milestone_doc(n)`; the milestone is not done until that file and this section both carry its numbers.
+Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medium, M6 small, M7 medium (large as a first JavaScript project). The seven-milestone ceiling was lifted by you on 2026-09-22 when M7 was added; every milestone still needs exit criteria, a prompt in §6 and its record. Every milestone ends with something you can look at, query or click, and with **one record in `docs/m<N>.md`** — `docs/m0.md` for M0, `docs/m3.md` for M3 — written by the command that measures that milestone (`eww report density`, `eww report volume`, `eww report identity`, `eww eval attachments`), so the measured numbers outlive the session that produced them. `eww/config.py` keeps the naming rule as `milestone_doc(n)`; the milestone is not done until that file and this section both carry its numbers.
 
 ### M0 — Real events on a local map (small) — DONE 2026-09-16
 
@@ -741,7 +743,11 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 
 **Risk retired.** The identity design works with minutes of human effort a week.
 
-### M3 — Headlines on pins (large; most likely to overrun)
+### M3 — Headlines on pins (large; most likely to overrun) — BUILT 2026-09-21, PARKED 2026-09-22
+
+**Result.** Everything in scope was built and is exercised by 78 new tests (202 passing): the GDELT and ReliefWeb collectors; `document` rows with canonical URLs and retrieval provenance (`enrichment_run`, `document_retrieval`: schema version 3); the English and Italian hazard lexicon with negative patterns; spaCy NER (multilingual on every text, English on English); the three-tier cached geocoder over a loaded GeoNames gazetteer (235,854 cities plus 3,784 admin1 and 246 country rows, 6 s to load); local embeddings (458 MB model cached under `data/models/`); `attach_document()` as written in §3 with its numbers in the `attachment:` section of `identity.yaml`; `mention` geometries; the News tab, candidate headlines in the Review tab and an About tab with the credits; `eww purge`, `eww eval attachments`, `eww geonames load`; one rate-limited `Provider` per remote service writing `logs/providers.jsonl`, which `eww doctor` reads back to prove the limits held. **No real document was ever collected**, so exit criteria 1, 2 and 4 are unjudged; 3 holds vacuously (every logged call carried the contact and no limit was approached); 5 holds (longest excerpt 0; `data/` holds the SQLite file, the model cache, the M1 snapshots and run logs, the labels folder and three backup copies); 6 held trivially. `docs/m3.md`, written by `eww eval attachments`, records the empty state and refreshes itself. The cause: GDELT's DOC API answered HTTP 429 to every request from 2026-09-21 14:22Z to at least 2026-09-22 14:40Z, from this laptop directly, from a corporate Zscaler egress, from Anthropic's fetch service and from a second laptop on another connection, eight scheduled retries included; independent measurements of 2026-07-27 put its real tolerance at 1 request of 7 at 6-second spacing with blocks that retries prolong. ReliefWeb needs an appname you deferred (§7, item 4). **Decision 2026-09-22: M3 is parked, not failed.** The pipeline stays; GDELT is best-effort (3 events a run, 15 s apart, 24 hours of silence after a 429); collection is no longer the priority and the plan moves to M4 through M7; measurement resumes when a source exists, which is one form for ReliefWeb or the NGrams path in §1. Two fixes to M2 came out of the four days of new snapshots: a GLIDE-named event beyond the aggregation radius that the record then joined as a sibling made the re-score try to merge the event into itself, and GDELT's query grammar rejects parentheses around a single term.
+
+**What M3 taught.** GDELT's ArtList carries headlines only, so the lexicon and NER work on titles; its Web NGrams table of contents carries the same fields plus an image on 92% of items, and 1.1% of one real batch's 3,163 titles passed the hazard lexicon, with visible false positives ("Blizzard layoffs", "investment is flooding back") the negative patterns must learn. ReliefWeb's appname is mandatory and the 403 is immediate. GeoNames' admin1 and country rows have no coordinates in the dump, so theirs are the population-weighted centre of their cities (the capital for countries), recorded with precision `admin1` / `country`. spaCy's English model tags "Emilia-Romagna" as a PERSON while the multilingual one tags it LOC, hence both run on English text. A corporate Zscaler proxy re-signs TLS with a root Python does not trust; the fix is `ca-bundle.pem` (CLAUDE.md), never disabling verification. The rebuild criterion holds only while the events themselves do not change between the incremental decision and the rebuild (§7, item 12).
 
 **Goal.** Attach free news to known events deterministically and show it in the sidebar.
 
@@ -810,6 +816,28 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 
 **Risk retired.** A hosting path exists that does not require a rewrite.
 
+### M7 — A real map: a React frontend on the GeoJSON boundary (medium; large as a first JavaScript project)
+
+**Decided 2026-09-22.** You chose React for the frontend and added the `impeccable` (design) and `react-best-practices` (Vercel's performance rules) skills to the repository. This lifts the "no JavaScript or CSS" constraint for one directory, `web/`, and lifts the seven-milestone ceiling. The pipeline, the schema and the GeoJSON contract do not change: §2 was written so that this milestone is additive.
+
+**Goal.** Replace the disposable Streamlit map with a React map that reads only the HTTP API, looks like the product the README describes (a world map you pan, zoom, filter and click), and is designed rather than assembled.
+
+**In scope.** `eww serve` (FastAPI; from M6, or created here if M6 was skipped) as the only thing the frontend talks to: `GET /events.geojson` with the contract's filters, `GET /events/{event_id}/documents` wrapping `event_documents()`, `GET /attributions`, `GET /health`, CORS for the Vite dev server. A Vite + React + TypeScript app in `web/`: MapLibre GL JS over free tiles (OpenStreetMap raster with attribution, or OpenFreeMap vector tiles, terms **verify**), pins coloured by hazard with clustering, a footprints toggle, geolocation, filters (hazard, window, minimum severity) reflected in the URL, a status strip from `meta`, a side panel with the Details and News tabs, an About page from `/attributions`, a layout that works on a phone. Designed with impeccable (`init` and `shape` before code, `audit` and `polish` after; PRODUCT.md and DESIGN.md committed) and built to the react-best-practices rules (no request waterfalls, the map library lazy-loaded, a small bundle). `eww report frontend` writes `docs/m7.md`: pin-count parity between the API and `events_geojson()`, the built bundle's size, the audit result.
+
+**Out.** Hosting the React build (M6's private Streamlit copy stays the phone path until the API has authentication), write actions (accept and reject stay in the Streamlit Review tab because the API is read-only), offline tiles, anything in the pipeline.
+
+**Exit criteria.**
+1. `npm run build` in `web/` completes with zero TypeScript errors, and the JavaScript transferred on first load is under 600 KB gzipped, map library included (`eww report frontend` reads `web/dist`).
+2. Parity: for the default view and for "flood, 7 days, severity ≥ 0.66", the pin count on the React map equals `eww export ... --count` and the number of Point features from `GET /events.geojson` with the same parameters.
+3. Clicking a pin shows title, hazard, severity label, started, last observed, country, sources and the detail link, and its News tab lists what `GET /events/{id}/documents` returns, syndicated copies collapsed.
+4. Filters and the selected event live in the URL: reloading the page restores them.
+5. impeccable `audit` reports no serious accessibility violation, and the layout works at 375 px wide.
+6. The Python side changed only in `eww serve`; `uv run pytest` passes and `uv run streamlit run app.py` still runs.
+
+**Why it might overrun.** A first JavaScript project: Node, TypeScript, Vite and MapLibre are all new. The mitigation is the boundary: the frontend holds no data logic, so every bug is a display bug, and the two skills carry the design and performance judgement.
+
+**Risk retired.** The swap boundary of §2 is real: a frontend was added without touching the pipeline.
+
 ## 5. Not in v1
 
 Everything below is deferred on purpose. The plan is credible because this list is long.
@@ -829,9 +857,9 @@ Everything below is deferred on purpose. The plan is credible because this list 
 | EM-DAT, GLIDE backfill | Historical; useful later as damage enrichment, not for discovery. (Copernicus EMS activations were listed here until M2 promoted them to the spine: low volume, but each is a confirmed disaster and most had no GDACS twin.) |
 | Weather layers (radar, satellite, wind animation as on zoom.earth or nullschool) | A different product built on gridded model data; v1 is a pin map. Open-Meteo at the clicked pin covers the README's forecast requirement. |
 | Historical backfill beyond 90 days | Cheap to add later from GDACS and EONET archives; not needed for "what is happening now". |
-| Streaming ingestion (Bluesky Jetstream, GDELT 15-minute files) | Needs an always-on process, which contradicts the laptop constraint; polling every 3 h meets the freshness target. |
+| Streaming ingestion (Bluesky Jetstream, GDELT 15-minute files) | Needs an always-on process, which contradicts the laptop constraint; polling every 3 h meets the freshness target. One exception is recorded, not built: GDELT's Web NGrams *table of contents* is a static file every 15 minutes that stays available for a week, so a laptop can backfill it in batches (§1, §7); the quadgram file next to it is excluded by your decision. |
 | Public deployment, authentication, donate button, SEO, mobile layout | Hosting is M6 and optional; everything that assumes a public audience waits for one. |
-| "Front-end design" and "website usability" as disciplines | The v1 viewer is disposable; design effort goes into the GeoJSON contract, which is what a real frontend will consume. |
+| "Front-end design" and "website usability" as disciplines before M7 | The Streamlit viewer is disposable; design effort went into the GeoJSON contract, which is what M7's React frontend consumes. Since 2026-09-22 design is in scope for M7, through the `impeccable` skill, and out of scope for `app.py`. |
 | Lexicons and NER beyond English and Italian | Each language is a small, separable addition once the pipeline works. |
 | Trained classifiers for hazard type or relevance | The lexicon plus event anchoring is enough at v1 precision targets; training data appears as a by-product of the review queue. |
 | A cloud database as the foundation | SQLite is rebuildable from the data branch and has no terms that can change; Postgres arrives with the first second writer. |
@@ -843,7 +871,7 @@ One prompt per milestone. Paste one into a fresh coding session opened in this r
 
 **Shared project brief** (repeated inside every prompt, kept here for reference):
 
-> Extreme Weather Watch (EWW) is a private, single-user tool that shows recent extreme weather and natural-hazard events on an interactive world map running on my Windows 11 laptop. Stack: Python 3.12 managed with uv, SQLite in WAL mode with STRICT tables, Streamlit + folium (Leaflet) for the viewer. I am strong in Python and SQL and have never written JavaScript or CSS: do not introduce a frontend framework, JavaScript, CSS, or Node tooling. Budget is €25/month, so use only free tiers and local components. No terms-of-service violations: official APIs and feeds only, no scraping, no browser automation, honour every rate limit. Store references to media, never bytes; never store full article bodies (excerpts are at most 2,000 characters). All timestamps are UTC ISO 8601 strings; all surrogate keys are ULIDs; every command is idempotent and safe to re-run. HTTP goes through `httpx` with a User-Agent of the form `extreme-weather-watch/0.x (+contact from config)`. Rate limits, radii and thresholds live in `eww/config.py`. Logging is structured, to stdout. Tests use pytest against a temporary SQLite file. The schema is `sql/schema.sql` and the GeoJSON contract is `eww/api.py`; both are specified in `docs/architecture.md` §3 and §2. Each milestone leaves one record in `docs/m<N>.md` (`docs/m2.md` for M2), written by the command that measures it.
+> Extreme Weather Watch (EWW) is a private, single-user tool that shows recent extreme weather and natural-hazard events on an interactive world map running on my Windows 11 laptop. Stack: Python 3.12 managed with uv, SQLite in WAL mode with STRICT tables, Streamlit + folium (Leaflet) for the viewer. I am strong in Python and SQL and have never written JavaScript or CSS: do not introduce a frontend framework, JavaScript, CSS, or Node tooling. Budget is €25/month, so use only free tiers and local components. No terms-of-service violations: official APIs and feeds only, no scraping, no browser automation, honour every rate limit. Store references to media, never bytes; never store full article bodies (excerpts are at most 2,000 characters). All timestamps are UTC ISO 8601 strings; all surrogate keys are ULIDs; every command is idempotent and safe to re-run. HTTP goes through `httpx` with a User-Agent of the form `extreme-weather-watch/0.x (+contact from config)`. Rate limits, radii and thresholds live in `eww/config.py`. Logging is structured, to stdout. Tests use pytest against a temporary SQLite file. The schema is `sql/schema.sql` and the GeoJSON contract is `eww/api.py`; both are specified in `docs/architecture.md` §3 and §2. Each milestone leaves one record in `docs/m<N>.md` (`docs/m2.md` for M2), written by the command that measures it. From M7 the frontend is React in `web/`, where Node tooling is allowed and nowhere else; the pipeline stays Python.
 
 ### Prompt M0 — Real events on a local map
 
@@ -1148,8 +1176,12 @@ Budget €25/month all-in; free and local first. Official APIs only; no media by
 chars; idempotent; UTC ISO 8601; ULIDs; settings in eww/config.py; pytest. Read docs/architecture.md
 §1b (unit cost) and §3 (document_extraction, llm_call) first. Ollama is installed on this machine
 (24 GB RAM, Ryzen AI 7 CPU); an Anthropic API key MAY be present in .env as ANTHROPIC_API_KEY.
-STATE: M0–M3 done. Events, cross-source merging, and deterministic news attachment work. Some documents
-leave extraction without a hazard type or a place; events have no written summary yet.
+STATE: M0–M2 done; M3 built and parked (§4): the news-attachment pipeline is tested but has attached no
+real documents, because GDELT's API proved unusable and ReliefWeb waits on an appname I deferred. Events
+have no written summary yet, so summaries must start from authority text (the GDACS description, the
+Copernicus activation) and use attached documents only when they exist. The provider log
+(logs/providers.jsonl, eww.ratelimit) and the Provider class in eww/http.py are the pattern for any new
+external call; typesafe.ai's Jev is a candidate third Extractor backend (§7).
 PROBLEM: fill hazard/place/figures for the ambiguous documents and write a short per-event summary with
 casualty figures, with a model, such that monthly spend cannot exceed a cap and every number is traceable
 to source text.
@@ -1335,6 +1367,69 @@ DEFINITION OF DONE
 4. R2 usage < 1 GB; the hosted app starts in under 60 seconds.
 ```
 
+### Prompt M7 — A real map: React on the GeoJSON boundary
+
+```
+CONTEXT
+Extreme Weather Watch (EWW): private, single-user hazard-event map on my Windows 11 laptop. The pipeline
+is Python 3.12 with uv, SQLite (WAL, STRICT); the current viewer is Streamlit + folium (app.py), which
+imports only eww.api and eww.review. I know Python and SQL; this is my first JavaScript project, so
+explain the toolchain as you introduce it and keep the frontend's data logic at zero. The constraint
+"no JavaScript or CSS" is lifted for one directory, web/, and nowhere else. Free tiers only; localhost
+first; no terms-of-service violations (tile providers want attribution and light use). Read
+docs/architecture.md §2 (the GeoJSON contract is the whole interface; protect it) and §4 (M7), then the
+impeccable and react-best-practices skills under .claude/skills, before writing anything.
+STATE: M0–M6 done or parked (§4 says which). `eww sync` maintains data/eww.sqlite; `eww serve` exists if
+M6 delivered it. eww.api exposes events_geojson(), event_documents(event_id) and attributions().
+GOAL: a React map that reads only the HTTP API and looks like the product README.md describes.
+
+DOCS: when the work is done, write docs/m7.md — this milestone's record, written by the command that
+measures it (`eww report frontend`), in the shape of docs/m2.md — and update docs/architecture.md §4
+(M7) with the measured numbers against each exit criterion. One document per milestone;
+eww/config.py has milestone_doc(n).
+
+TASK
+1. `eww serve` (create it if M6 did not): FastAPI + uvicorn on localhost:8000. GET /events.geojson maps
+   the query parameters (since, until, hazard repeated, min_severity, status, bbox, include_footprints,
+   limit) onto events_geojson(); GET /events/{event_id}/documents onto event_documents(); GET
+   /attributions onto attributions(); GET /health returns the heartbeat meta. CORS for the Vite dev
+   server. No logic of its own: every filter is applied inside eww.api.
+2. Design before code: run the impeccable skill's `init` (PRODUCT.md from README.md and
+   docs/architecture.md §0) and `shape` for the map surface in Operate mode. Commit PRODUCT.md and the
+   surface brief before the first component.
+3. Scaffold web/ with Vite + React + TypeScript (npm). Dependencies: react, react-dom, maplibre-gl, and
+   nothing else until a need is shown. Scripts: dev, build, preview, typecheck.
+4. The map: MapLibre GL JS over free tiles with the credit line shown; circle markers coloured by
+   hazard_type with clustering at low zoom; footprints as a toggleable GeoJSON layer; a geolocation
+   control; filters (hazard multiselect, window 1–90 days, minimum severity steps); a status strip
+   from `meta`; a side panel for the clicked feature with Details and News tabs (news from
+   /events/{id}/documents, syndicated copies collapsed, thumbnail by URL with the link as fallback); an
+   About page from /attributions. Filters and the selected event_id live in the URL query.
+5. Follow react-best-practices: fetch /events.geojson once per filter change and derive everything else
+   in memory; lazy-load maplibre-gl; fetch documents when a pin is clicked, never before; no derived
+   state in useState; no request waterfalls.
+6. `eww report frontend`: pin-count parity (API against events_geojson() for the default view and for
+   flood / 7 d / 0.66), the gzipped size of the JavaScript in web/dist, the impeccable audit summary
+   when present; writes docs/m7.md through config.milestone_doc(7).
+7. Finish with impeccable `audit` and `polish`; commit DESIGN.md. Gitignore web/node_modules and
+   web/dist. Do not add the frontend to the GitHub Actions collector workflow.
+
+CONSTRAINTS
+The frontend holds no data logic: no filtering, no severity mapping, no merge-pointer following; if it
+needs a field, add it to eww.api and to the contract in §2. No writes from the frontend. No paid
+services. Node tooling stays inside web/. Never fetch tiles or images through the Python side.
+
+DEFINITION OF DONE
+1. `npm run build` completes with zero TypeScript errors; first-load JavaScript under 600 KB gzipped.
+2. Pin-count parity for the default view and for flood / 7 d / severity ≥ 0.66 across `eww export
+   --count`, GET /events.geojson and the map.
+3. A clicked pin shows title, hazard, severity label, dates, country, sources and the detail link, and
+   its News tab matches GET /events/{id}/documents.
+4. Filters and the selected event survive a page reload through the URL.
+5. impeccable `audit`: no serious accessibility violation; the layout works at 375 px.
+6. Python changed only in `eww serve`; pytest passes and the Streamlit app still runs.
+```
+
 ## 7. Open questions
 
 Only things that need your input or an external check.
@@ -1350,7 +1445,7 @@ Only things that need your input or an external check.
    - GDACS: verified 2026-09-16 against the swagger file: `eventlist`, `alertlevel`, `fromDate`, `toDate`, `pageSize`, `pageNumber`; volcano (`VO`) events do appear in the JSON API (2 in the 30-day window); `TS` returned none, and including it in a combined `eventlist` collapsed the result to 4 rows, hence one request per type.
    - EONET: the [lat, lon] order of Polygon rings is observed (2026-09-16), not documented. If EONET fixes it, flood footprints and centroids shift until `EONET_POLYGON_AXES_SWAPPED` in `eww/config.py` is turned off; re-check whenever an EONET flood pin sits far from its GDACS twin.
    - ReliefWeb: appname approval turnaround, and whether its "no derivative works" clause matters if you ever publish summaries built from its reports.
-   - GDELT: the DOC API's search lookback (assumed about three months) and the informal one-request-per-5-seconds limit.
+   - GDELT: the DOC API's search lookback (assumed about three months; the first query for an event never starts earlier than `GDELT_LOOKBACK_DAYS` = 90 days ago) remains unverified because the API never answered. The rate limit is no longer a **verify**: measured unusable (§1b), best-effort in config.
    - Bluesky: numeric rate limits for authenticated `searchPosts` on `bsky.social` (only the general 3,000 per 5 minutes per IP is published).
    - YouTube: whether the 30-day storage rule for API data applies to titles and thumbnail URLs you display with a live link.
    - Open-Meteo and GeoNames limits, and the OSM tile policy's view of a Streamlit-served Leaflet map: read the current pages when you reach M3 and M5.
@@ -1365,6 +1460,12 @@ Only things that need your input or an external check.
 10. **The aggregation radius per hazard.** `identity.yaml` starts at 25 km with 200 km for tropical cyclones, 100 km for severe storms and 250 km for drought, heatwave and coldwave; those overrides are my reading of the feeds' sampling, not yours. The 27 proposals the gate wrote on 2026-09-17 are the evidence to judge them by: correct pairs piling up for one hazard mean its radius is too tight (the four beyond-radius flood mirrors sit at 37 to 90 km), wrong ones getting through mean too wide. Widen per hazard, never the default.
 8. **The heartbeat grace against a slow scheduler.** GitHub ran the collector 1 h 35 min to 1 h 45 min after each slot on 2026-09-17, so the 45-minute rule showed 7 of 8 runs missed while data kept arriving. Either widen `HEARTBEAT_GRACE_MINUTES` (a 2-hour grace still catches a stopped pipeline within one day) or keep the strict rule and read the red strip as "GitHub is late". Your call; the code change is one constant.
 9. **Label the pairs.** `data/labels/merge_pairs.csv` carries a starter set of 24 yes and 24 no labelled from the feeds' own facts and the 11 open proposals with an empty `same_event`; M2's exit criteria 1 and 2 are yours to close by reviewing those rows and adding your own from `merge_candidates.csv`, then running `uv run eww eval merges`.
+11. **Label the attachments, when there are any.** `eww eval attachments --sample 100` writes `data/labels/attachment_sample.csv`; M3's exit criterion 2 is yours to close by filling `correct` and `cause` and re-running `eww eval attachments`, which rewrites `docs/m3.md`. Moot until a source delivers documents.
+12. **Rebuild determinism over time.** `eww attach --rebuild` re-decides against the events as they are now, so a new GDACS episode or a merge between the incremental decision and the rebuild can legitimately change a row; re-run `verify-attach-rebuild.py` after a week of real documents and decide whether "identical" should mean "identical for unchanged events".
+13. **GDELT Web NGrams as the news path, recorded 2026-09-22, not built.** Measured on the 14:31Z batch: `toc.json.gz` 478 KB, 3,163 articles, fields ID/date/img/lang/title/url, 92% with an image, languages en 982 / es 310 / de 222 / it 198 / ru 158 / el 149; 1.1% of titles pass the hazard lexicon, about 3,300 a day; files from seven days back still served. The quadgram file (11.9 MB per batch, 1.1 GB a day) is out by your decision. Building it means a firehose instead of per-event queries (no query prior in the score, so the 90% precision criterion is where it would be felt), a "last batch processed" marker instead of `enrichment_run`, twenty times the extraction volume the cost model assumed, and the path `gdeltv5/weblegacy` is described as transitional: **verify** before relying on it.
+14. **typesafe.ai Jev as the classifier for that firehose, your idea of 2026-09-22, not built.** Jev is typesafe.ai's first "System One" model (blog 2026-09-15): structured, type-safe outputs constrained to a schema you define, with calibrated probabilities, 70 to 500 ms, input $0.042 per million tokens, output free, hosted API in early access, served from the US West Coast. Classifying 3,300 titles a day into the twelve hazard types plus "not a hazard" would cost about €0.15 a month and would catch what the lexicon cannot (metaphor, retrospectives). It fits the M4 `Extractor` interface as a third backend beside Ollama and Claude, and as the pre-filter of item 13. **Verify** before use: that early access is open to a personal project, the terms, whether a user-defined schema is accepted, and where the data goes.
+15. **Collection de-prioritised, 2026-09-22.** M1 to M3 went into collecting and left a tested pipeline with no news in it. Your decision: proceed to M4 through M7 on the spine as it is, and reopen news only when a source exists (ReliefWeb appname, item 4; or items 13 and 14).
+16. **React as a first JavaScript project (M7).** The risk is the toolchain, not the design: Node, TypeScript, Vite and MapLibre are all new to you. What keeps it bounded is the rule that the frontend holds no data logic; if the map needs a field, it is added to `eww.api`. Decide after M7's `shape` step whether MapLibre with raster OpenStreetMap tiles or a free vector-tile provider such as OpenFreeMap is the basemap (**verify** the provider's terms and attribution).
 
 ## Revision log
 
@@ -1372,3 +1473,5 @@ Only things that need your input or an external check.
 - **2026-09-16 — M1 built and its first run observed.** Orphan `data` branch pushed, `collect.yml` dispatched once (31 s, gdacs=2,192, eonet=1,051, commit `28e7df3`), `eww sync` replayed it on the laptop (2 files, 11 new records), second ingest 0 new files. Added `expected_runs_7d` to the §2 contract and the `heartbeat` view (schema version 2) to the §3 DDL, recorded the M1 status and design fixes in §4, added the three-day follow-ups and the action pins to §7. Sections touched: 2, 3, 4, 7.
 - **2026-09-17 — M2 built; exit criteria 3, 4, 5 met, 1 and 2 on a starter set.** Copernicus EMS joined the spine and now creates events (8 of 9 activations had no GDACS twin); `resolve_record()` implemented with the deterministic keys, a GLIDE guard for one number on two GDACS ids, basin-wide blocking for named storms, re-scoring on sibling attach, a key-conflict guard and the rule that differently named storms and human-reverted pairs never merge automatically; database rebuilt from snapshots (3,855 records → 2,392 events, 941 key joins, 13 name merges, 11 proposals); severity measured (quantised `alertscore`, degenerate GDACS bboxes). Recorded the algorithm and the severity function in §3, moved Copernicus from §5 into the §1 spine rows, noted the canonical-only footprints, `ems_activation`, `--count` and the `eww.review` import in the §2 contract, added the late-Actions observation to M1 and questions 8 and 9 plus the Copernicus licence **verify** to §7. Sections touched: 0, 1, 2, 3, 4, 5, 6 (Prompt M3 STATE), 7.
 - **2026-09-17 — Aggregation radius; identity numbers moved to identity.yaml.** Flood in Nepal showed three feeds 85 to 102 km apart on one pin. Decision: two feeds share a pin automatically only inside an aggregation radius (25 km default, per-hazard overrides), ids and GLIDE included, otherwise a proposal; the radius, blocking radii, thresholds and weights now live in `identity.yaml`, loaded and validated by config. Rebuilt: 2,431 live events, 14 merges, 39 proposals, 27 kept apart by the radius; the gate exposed GDACS reusing wildfire ids (four EONET items had been attached to fires on other continents). `eww report identity` writes `docs/m2.md`. Updated the §1 clustering row, the §3 pseudocode and radius paragraph, the M2 status in §4, Prompt M3's STATE in §6, §7 (id reuse, question 10). Sections touched: 1, 3, 4, 6, 7.
+- **2026-09-21 — M3 built: headlines on pins.** Enrichment collectors for GDELT (per event, spaced, stopping on 429) and ReliefWeb (skipped without an appname); `document` rows with canonical URLs and retrieval provenance (`document_retrieval`, `enrichment_run`: schema version 3); the English/Italian hazard lexicon with negative patterns; spaCy NER; the three-tier cached geocoder with a loaded GeoNames gazetteer; local embeddings; `attach_document()` as in §3 with its numbers in `identity.yaml`; `mention` geometries; the News tab, candidate headlines in the Review tab, an About tab with credits; `eww purge`, `eww eval attachments`, the provider log and the rate-limit proofs in `eww doctor`; the `docs/m<N>.md` convention (`config.milestone_doc`). Fixed in M2's resolve on the way: the self-merge of a GLIDE-named event joined as a sibling. Sections touched: 1, 1b, 2, 3, 4, 6 (Prompt M4 STATE, DOCS lines in M4–M6), 7 (items 4, 5, 7, 11, 12).
+- **2026-09-22 — M3 parked; scope re-set; M7 added.** GDELT's DOC API answered 429 from four unrelated networks for 22 hours and third-party measurements put its real tolerance far below its documented limit: recorded in §1, §1b and §4, the collector made best-effort. A corporate Zscaler proxy broke TLS for Python: fixed with a trusted CA bundle (CLAUDE.md). Your decisions: ReliefWeb deferred (item 4, exact steps recorded); the GDELT Web NGrams table of contents plus typesafe.ai's Jev recorded as the news path for later, quadgram file excluded (items 13, 14); collection de-prioritised, proceed to M4–M7 (item 15); React frontend added as M7 with Prompt M7, the seven-milestone ceiling lifted and the no-JavaScript constraint lifted for `web/` (§1, §2, §4, §5, §6, item 16; the update-architecture-doc skill and its checker updated to match). Sections touched: 0 (dateline only), 1, 1b, 2, 4, 5, 6, 7.
