@@ -550,10 +550,32 @@ def write_identity_report(conn: sqlite3.Connection, out: Path | None = None, day
 def attachment_report(conn: sqlite3.Connection, evaluation: dict | None, *, now: datetime | None = None) -> dict:
     """What M3 did: coverage, decisions, extraction and geocoding counts, the labelled precision and its errors."""
     from eww import attach, documents, geocode, ratelimit
+    from eww import enrich as enrich_mod
 
     now = now or now_utc()
     since = now - timedelta(days=config.DOCTOR_LOG_DAYS)
+    runs = [dict(r) for r in conn.execute(
+        "SELECT source_id, COUNT(*) AS events, MAX(queried_at) AS last_run, COALESCE(SUM(documents_new), 0) AS documents "
+        "FROM enrichment_run GROUP BY 1 ORDER BY 1"
+    )]
+    last_call: dict[str, dict] = {}
+    for record in ratelimit.read(since, kind="call"):
+        last_call[str(record.get("provider"))] = {"at": record.get("at"), "status": record.get("status")}
+    providers = []
+    for source_id, module in enrich_mod.modules().items():
+        ok, reason = module.available(conn)
+        row = next((r for r in runs if r["source_id"] == source_id), None)
+        providers.append({
+            "source_id": source_id,
+            "configured": ok,
+            "reason": reason,
+            "events": (row or {}).get("events", 0),
+            "documents": (row or {}).get("documents", 0),
+            "last_run": (row or {}).get("last_run"),
+            "last_call": last_call.get(source_id),
+        })
     return {
+        "providers": providers,
         "generated_at": to_iso(now),
         "database": str(config.DB_PATH),
         "identity_path": config.IDENTITY["path"],
@@ -590,6 +612,31 @@ def render_attachment_markdown(result: dict) -> str:
         f"(no resolved place: {att['no_place_weights']['temporal']:g} temporal + {att['no_place_weights']['text']:g} text, text at least {att['no_place_min_text']:g}), "
         f"+{att['query_prior']:g} when the event's query fetched the document; at or above {att['attach_threshold']:g} attached, "
         f"at or above {att['candidate_threshold']:g} a candidate for the Review tab, below that nothing.",
+        "",
+        "## Enrichment",
+        "",
+        "| Provider | Events queried | Documents | Last run | State |",
+        "|---|---:|---:|---|---|",
+    ]
+    for provider in result["providers"]:
+        call = provider["last_call"]
+        if not provider["configured"]:
+            state = f"not configured: {provider['reason']}"
+        elif call and call.get("status") == 429:
+            state = f"refused with HTTP 429, last tried {call['at']}"
+        elif call:
+            state = f"last call {call['at']} answered {call['status']}"
+        else:
+            state = "configured, never called"
+        lines.append(f"| {provider['source_id']} | {provider['events']} | {provider['documents']} | {provider['last_run'] or 'never'} | {state} |")
+    if docs["documents"] == 0:
+        lines += [
+            "",
+            "**No documents have been collected, so every number below is zero and the exit criteria cannot be judged yet.** "
+            "The pipeline itself is exercised by the test suite; what is missing is real input from the enrichment providers. "
+            "Re-run `uv run eww sync` once a provider answers, then `uv run eww eval attachments` to refresh this record.",
+        ]
+    lines += [
         "",
         "## Coverage (exit criterion 1)",
         "",
