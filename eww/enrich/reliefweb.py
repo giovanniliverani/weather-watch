@@ -27,7 +27,7 @@ SOURCE_ID = "reliefweb"
 
 def available(conn: sqlite3.Connection) -> tuple[bool, str]:
     if not config.RELIEFWEB_APPNAME:
-        return False, "RELIEFWEB_APPNAME is not set (request an appname at https://apidoc.reliefweb.int/parameters#appname)"
+        return False, "deferred: RELIEFWEB_APPNAME is not set. Request an appname at https://docs.google.com/forms/d/e/1FAIpQLScR5EE_SBhweLLg_2xMCnXNbT6md4zxqIB00OL0yZWyrqX_Nw/viewform (name it after the organisation, the purpose and some random characters), then put it in .env; nothing else is needed."
     return True, ""
 
 
