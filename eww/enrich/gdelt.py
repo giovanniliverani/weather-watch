@@ -14,21 +14,30 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from eww import config, documents, ratelimit
 from eww import http as http_mod
-from eww.clock import to_iso
+from eww.clock import now_utc, to_iso
 from eww.enrich import EventResult, queries
 
 log = logging.getLogger(__name__)
 
 SOURCE_ID = "gdelt"
 LOOKBACK_DAYS = config.GDELT_LOOKBACK_DAYS
+MAX_EVENTS_PER_RUN = config.GDELT_MAX_EVENTS_PER_RUN  # the API tolerates far less than it documents (config)
 _STAMP = "%Y%m%d%H%M%S"
 
 
 def available(conn: sqlite3.Connection) -> tuple[bool, str]:
+    """Skip the provider entirely while a recent refusal is still in force: retrying is what keeps a caller blocked."""
+    quiet = config.GDELT_QUIET_HOURS_AFTER_429
+    if not quiet:
+        return True, ""
+    since = now_utc() - timedelta(hours=quiet)
+    refused = [r for r in ratelimit.read(since, kind="call") if r.get("provider") == SOURCE_ID and r.get("status") == 429]
+    if refused:
+        return False, f"refused with HTTP 429 at {refused[-1]['at']}; leaving GDELT alone for {quiet} h (EWW_GDELT_IGNORE_QUIET=1 to force)"
     return True, ""
 
 

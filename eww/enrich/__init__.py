@@ -131,7 +131,8 @@ def run(
             stats.stopped = reason
             log.warning("%s skipped: %s", source_id, reason)
             continue
-        events = active_events(conn, days=days, now=now, limit=max_events)
+        cap = max_events if max_events is not None else getattr(module, "MAX_EVENTS_PER_RUN", config.ENRICH_MAX_EVENTS_PER_RUN)
+        events = active_events(conn, days=days, now=now, limit=cap)
         stats.events_considered = len(events)
         collector = module.collector(http=http)
         try:

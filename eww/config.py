@@ -455,7 +455,7 @@ SECRET_PARAMS = {"username", "appname", "key", "api_key", "token"}  # never writ
 # --------------------------------------------------------------------------- enrichment collectors (M3, laptop only)
 ENRICH_SOURCES = ["gdelt", "reliefweb"]  # what `eww sync` and `eww enrich` run, in this order
 ENRICH_ACTIVE_DAYS = 14  # events observed (or ended) in the last N days are queried, by severity
-ENRICH_MAX_EVENTS_PER_RUN = 40  # per provider per run: 40 GDELT queries at 5 s spacing is about 3.5 minutes
+ENRICH_MAX_EVENTS_PER_RUN = 40  # per provider per run, unless the provider module sets MAX_EVENTS_PER_RUN
 ENRICH_BACKFILL_DAYS = 2  # the first query for an event starts this many days before its start
 ENRICH_MIN_SEVERITY = 0.0  # events below this score are never queried (0 = every active event, capped above)
 
@@ -464,8 +464,16 @@ ENRICH_MIN_SEVERITY = 0.0  # events below this score are never queried (0 = ever
 # status 200) when it is exceeded: on either the run stops calling GDELT. Articles carry url, url_mobile,
 # title, seendate (YYYYMMDDTHHMMSSZ), socialimage, domain, language, sourcecountry. The search lookback is
 # finite (about three months, verify), so a first query never starts earlier than GDELT_LOOKBACK_DAYS ago.
+# Measured, not documented: GDELT's published "one request every 5 seconds" is optimistic. Independent
+# measurements on 2026-07-27 got 1 request of 7 through at 6-second spacing, 4 of 12 at 16 seconds and
+# 3 of 8 at 60 seconds, and about 60 requests over 90 minutes triggered a block that no retry interval
+# cleared. Confirmed here 2026-09-21/22: 429 from four unrelated networks over 22 hours. So the API is
+# treated as best-effort garnish, not a dependency: a handful of the most severe events per run, widely
+# spaced, and a run that stops dead on the first refusal. Retrying harder is what keeps a caller blocked.
 GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
-GDELT_MIN_INTERVAL_S = 6.0  # the rule is 5 s; the extra second absorbs clock jitter, because the penalty for a breach is a lockout of hours
+GDELT_MIN_INTERVAL_S = 15.0
+GDELT_MAX_EVENTS_PER_RUN = 3  # `eww enrich --max-events N` overrides it for a deliberate backfill
+GDELT_QUIET_HOURS_AFTER_429 = 0 if os.getenv("EWW_GDELT_IGNORE_QUIET") else 24  # after a refusal, leave the API alone this long rather than retrying
 GDELT_MAX_RECORDS = 250
 GDELT_LOOKBACK_DAYS = 90
 GDELT_MAX_PLACE_TERMS = 8
