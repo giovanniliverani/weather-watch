@@ -12,7 +12,8 @@ def test_schema_applies_on_empty_file(tmp_path):
     tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     for expected in ("schema_version", "source", "collector_run", "snapshot_ingest", "event", "source_record", "event_geometry", "document", "merge_proposal"):
         assert expected in tables
-    assert db.schema_version(connection) == db.SCHEMA_VERSION == 3
+    assert db.schema_version(connection) == db.SCHEMA_VERSION == 4
+    assert "summary_evidence" in {row[1] for row in connection.execute("PRAGMA table_info(event)")}
     sources = {row[0]: row for row in connection.execute("SELECT source_id, kind, attribution, terms_url FROM source")}
     assert set(sources) == {"gdacs", "eonet", "copernicus", "gdelt", "reliefweb"}
     assert sources["gdacs"]["kind"] == "authority"

@@ -387,7 +387,7 @@ REVIEW_RECENT_MERGES = 50  # rows in the Review tab's merge list
 # One document per milestone, named after the milestone and nothing else: docs/m0.md, docs/m1.md, ...
 # Each is written (and rewritten) by the command that measures that milestone, so the numbers in it are
 # always measured rather than remembered: `eww report density` -> m0, `eww report volume` -> m1,
-# `eww report identity` -> m2, `eww eval attachments` -> m3. A new report writer inherits the rule by
+# `eww report identity` -> m2, `eww eval attachments` -> m3, `eww eval extraction` -> m4. A new report writer inherits the rule by
 # calling milestone_doc() instead of naming a file.
 
 
@@ -573,3 +573,39 @@ COVERAGE_MIN_DOCUMENTS = 3  # ... at least this many attached documents ...
 COVERAGE_TARGET = 0.50  # ... on at least this share of severe events active in the last ENRICH_ACTIVE_DAYS days
 CACHE_HIT_RATE_TARGET = 0.70  # M3 exit criterion 4
 DOCTOR_LOG_DAYS = 7  # `eww doctor` reads the provider log this far back by default
+
+# --------------------------------------------------------------------------- models (M4)
+# Local is the default. The cloud backend is Claude Sonnet 5 through the Message Batches API, and it is
+# never called unless the month-to-date ledger plus the estimate of the batch still fits under the cap.
+# Prices are USD per million tokens (Anthropic's table, architecture §1b: verify). The batch multiplier
+# and the cache multipliers apply together: a cache read of input is price * 0.1 * 0.5.
+LLM_BACKEND = os.getenv("EWW_LLM_BACKEND", "local").strip().lower()  # 'local' | 'ollama' | 'anthropic'
+LLM_LOCAL_MODEL = "span"  # method llm:span — figures and places read from the source text, no generation
+LLM_BUDGET_USD = float(os.getenv("EWW_LLM_BUDGET_USD", "10"))
+LLM_OLLAMA_URL = os.getenv("EWW_OLLAMA_URL", "http://localhost:11434").rstrip("/")
+LLM_OLLAMA_MODEL = "qwen2.5:7b-instruct"
+LLM_ANTHROPIC_MODEL = "claude-sonnet-5"
+LLM_PRICE_INPUT_PER_M = 2.0
+LLM_PRICE_OUTPUT_PER_M = 10.0
+LLM_BATCH_MULTIPLIER = 0.5
+LLM_CACHE_READ_MULTIPLIER = 0.1
+LLM_CACHE_WRITE_MULTIPLIER = 1.25
+LLM_MAX_OUTPUT_TOKENS = 1024
+LLM_ESTIMATE_OUTPUT_TOKENS = 200  # per request, used only to decide whether the batch fits under the cap
+LLM_OLLAMA_TIMEOUT_S = 180.0
+LLM_OLLAMA_PULL_TIMEOUT_S = 3600.0
+LLM_BATCH_POLL_S = 5.0
+LLM_BATCH_TIMEOUT_S = 3600.0
+LLM_PREFIX_MIN_TOKENS = 1024  # Sonnet 5's minimum cacheable prefix (Anthropic prompt-caching docs)
+LLM_SUMMARY_MAX_SENTENCES = 3
+LLM_SUMMARY_MAX_DOCS = 8  # highest-scoring attached documents, title + excerpt
+LLM_SUMMARY_MIN_NEW_DOCS = 3  # attached documents that were not part of the last summary
+LLM_SUMMARY_REFRESH_HOURS = 24
+LLM_CANDIDATES = 5  # candidate events named in one extraction prompt
+LLM_AWAITING_HOURS = 24  # eww doctor: documents still without an extraction row after this long
+GOLDEN_DOCUMENTS = PROJECT_ROOT / "tests" / "golden" / "documents.jsonl"
+GOLDEN_EVENTS = PROJECT_ROOT / "tests" / "golden" / "events.jsonl"
+# eww eval extraction: the bars in docs/architecture.md §4, M4, exit criterion 1.
+EVAL_HAZARD_ACCURACY = 0.90
+EVAL_PLACE_RESOLUTION = 0.80
+EVAL_FIGURES_EXACT = 0.80

@@ -18,7 +18,7 @@ from typing import Optional
 
 import typer
 
-from eww import api, collectors, config, db, documents, gitdata, heartbeat, ingest, labels, ratelimit, report, resolve, snapshots
+from eww import api, collectors, config, db, documents, gitdata, heartbeat, ingest, labels, llm, ratelimit, report, resolve, snapshots
 from eww import attach as attach_mod
 from eww import embed as embed_mod
 from eww import enrich as enrich_mod
@@ -188,7 +188,7 @@ def sync(
     do_attach: bool = typer.Option(True, "--attach/--no-attach", help="Extract, embed and attach the new documents."),
     max_events: Optional[int] = typer.Option(None, "--max-events", help=f"Events per provider per run (default {config.ENRICH_MAX_EVENTS_PER_RUN})."),
 ) -> None:
-    """git fetch + ingest + resolve, then enrich (GDELT, ReliefWeb) + extract + embed + attach, then one summary line."""
+    """git fetch + ingest + resolve, then enrich + extract + embed + attach, then the model (ambiguous documents and summaries)."""
     started = time.monotonic()
     conn = _open()
     branch_result = ingest.ingest_branch(conn, branch=branch, repo=repo, fetch=fetch)
@@ -208,7 +208,15 @@ def sync(
             x = extract_mod.run(conn)
             v = embed_mod.embed_documents(conn)
             a = attach_mod.run(conn)
-            attach_line = f"extracted={x.documents} embedded={v.documents} attached={a.attached} candidates={a.candidates}"
+            model = llm.run(conn)
+            again = attach_mod.run(conn)
+            if model.pulled:
+                typer.echo(f"pulled {config.LLM_OLLAMA_MODEL} (it was not installed)")
+            attach_line = (
+                f"extracted={x.documents} embedded={v.documents} attached={a.attached}+{again.attached} candidates={a.candidates} "
+                f"model={model.documents} summarised={model.summarised} llm={model.backend} llm_usd={model.cost_usd:.4f}"
+                + (" budget_cap" if model.fell_back else "")
+            )
         except Exception as exc:
             log.error("attach stage failed error=%s: %s", type(exc).__name__, exc)
             attach_line = f"attach=failed({type(exc).__name__})"
@@ -391,6 +399,8 @@ def _doctor_m3(conn, now, log_days: int) -> None:
     typer.echo(f"model cache: {config.MODEL_DIR} ({'present' if config.MODEL_DIR.exists() else 'not downloaded yet'}); logs: {config.LOG_DIR}")
     typer.echo(f"TLS: certificates verified against {config.CA_BUNDLE or 'the bundled certifi roots'}"
                + ("" if config.CA_BUNDLE else "; set EWW_CA_BUNDLE or drop ca-bundle.pem at the repository root if a proxy inspects TLS"))
+    for line in llm.doctor_lines(conn, now):
+        typer.echo(line)
 
 
 # ----------------------------------------------------------------------------- M3: enrichment, extraction, embeddings, attachment
@@ -529,6 +539,41 @@ def eval_attachments(
     share = "n/a" if cov["share"] is None else f"{100 * cov['share']:.0f}%"
     typer.echo(f"written {report_file}; coverage {cov['covered']}/{cov['events']} ({share}) of severe events with >= {cov['min_documents']} attached documents")
     if evaluation is not None and not evaluation["passed"]:
+        raise typer.Exit(code=1)
+
+
+@eval_app.command("extraction")
+def eval_extraction(
+    backend: Optional[str] = typer.Option(None, "--backend", help="local (default), ollama, or anthropic. Anthropic still stops at the budget cap."),
+    report_path: Optional[Path] = typer.Option(None, "--report", help="Default: docs/m4.md (the milestone record)."),
+) -> None:
+    """Score the golden set (tests/golden/) and write docs/m4.md. Exit code 1 when a bar is missed."""
+    if backend is not None and backend not in ("local", "ollama", "anthropic"):
+        typer.echo("backend must be local, ollama or anthropic", err=True)
+        raise typer.Exit(code=2)
+    conn = _open()
+    name = backend or config.LLM_BACKEND
+    # Same cap check as eww sync: a cap of 0 never constructs the cloud client.
+    document_rows = llm.load_jsonl(config.GOLDEN_DOCUMENTS)
+    event_rows = llm.load_jsonl(config.GOLDEN_EVENTS)
+    payloads = [llm.user_extract(row, row.get("candidates") or []) for row in document_rows]
+    payloads += [llm.user_summary(row, row.get("authority_text") or "", row.get("documents") or []) for row in event_rows]
+    estimate = llm.estimate_batch_usd(llm.system_prefix("extract"), payloads)
+    extractor, fell_back = llm.make_extractor(conn, estimate, backend=name)
+    if fell_back:
+        typer.echo("budget cap reached; scoring with the local extractor")
+    result = llm.evaluate(conn, extractor)
+    extractor.close()
+    if extractor.pulled:
+        typer.echo(f"pulled {config.LLM_OLLAMA_MODEL} (it was not installed)")
+    path = llm.write_eval_report(conn, result, str(_state["db"] or config.DB_PATH), report_path)
+    typer.echo(
+        f"hazard {100 * result['hazard_accuracy']:.1f}%  places {100 * result['place_resolution']:.1f}%  "
+        f"figures {100 * result['figures_exact']:.1f}%  span violations {result['span_violations']}  "
+        f"cost ${result['cost_usd']:.4f}"
+    )
+    typer.echo(f"written {path}")
+    if not result["passed"]:
         raise typer.Exit(code=1)
 
 

@@ -54,7 +54,8 @@ CREATE TABLE event (
   glide_number         TEXT,               -- cross-source key when any source supplies one
   summary              TEXT,
   summary_updated_at   TEXT,
-  summary_method       TEXT,               -- 'authority', 'llm:qwen2.5-7b', 'llm:claude-sonnet-5'
+  summary_method       TEXT,               -- 'llm:qwen2.5:7b-instruct', 'llm:claude-sonnet-5'
+  summary_evidence    TEXT,               -- JSON: sentences with evidence spans, figures, document_ids
   merged_into_event_id TEXT REFERENCES event(event_id),   -- soft merge: the row stays, the pointer moves
   created_at           TEXT NOT NULL,
   updated_at           TEXT NOT NULL,

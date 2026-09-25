@@ -226,6 +226,10 @@ else:
         if p["glide_number"]:
             st.write(f"GLIDE: {p['glide_number']}")
         st.write(f"Attached headlines and reports: {p['doc_count']}")
+        if p["summary"]:
+            st.write(p["summary"])
+            as_of = (p["summary_updated_at"] or "").replace("T", " ").removesuffix("Z")
+            st.caption(f"Summary as of {as_of} UTC" if as_of else "Summary")
         if p["detail_url"]:
             st.link_button("Open the source's page", p["detail_url"])
         st.caption(f"event_id {p['event_id']}")

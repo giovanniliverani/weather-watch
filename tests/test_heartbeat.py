@@ -85,13 +85,16 @@ def test_migration_from_version_1_adds_the_same_view(tmp_path):
     old = db.connect(tmp_path / "old.sqlite")
     ddl = db.config.SCHEMA_PATH.read_text(encoding="utf-8")
     v1_ddl = ddl[: ddl.index("CREATE VIEW heartbeat")]
+    # The current CREATE TABLE event carries M4's summary_evidence column. A version-1 database did not.
+    v1_ddl = v1_ddl.replace("  summary_evidence    TEXT,               -- JSON: sentences with evidence spans, figures, document_ids\n", "")
     old.executescript(v1_ddl)
     with old:
         old.execute("INSERT INTO schema_version (version, applied_at) VALUES (1, '2026-09-16T00:00:00Z')")
     assert db.schema_version(old) == 1
     assert db.init_db(old) is True
-    assert db.schema_version(old) == db.SCHEMA_VERSION == 3
-    assert [r[0] for r in old.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3]
+    assert db.schema_version(old) == db.SCHEMA_VERSION == 4
+    assert [r[0] for r in old.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3, 4]
+    assert "summary_evidence" in {row[1] for row in old.execute("PRAGMA table_info(event)")}
     migrated_view = old.execute("SELECT sql FROM sqlite_master WHERE type = 'view' AND name = 'heartbeat'").fetchone()[0]
     assert migrated_view == fresh_view
     assert db.init_db(old) is False  # nothing more to do

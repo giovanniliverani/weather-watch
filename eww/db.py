@@ -17,7 +17,7 @@ from eww.clock import now_iso
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3  # 1: the §3 DDL; 2: the heartbeat view (0002); 3: enrichment_run and document_retrieval (0003, M3)
+SCHEMA_VERSION = 4  # 1: the §3 DDL; 2: heartbeat (0002); 3: enrichment (0003, M3); 4: event.summary_evidence (0004, M4)
 MIGRATIONS_DIR = config.PROJECT_ROOT / "sql" / "migrations"
 
 
