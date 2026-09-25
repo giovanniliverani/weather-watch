@@ -267,3 +267,103 @@ def render_evaluation(result: dict) -> str:
         lines += [f"  {pair(row)}" for row in result["missed"]]
     lines.append(f"verdict: {'PASS' if result['passed'] and result['enough_labels'] else 'FAIL'}")
     return "\n".join(lines)
+
+
+# ============================================================================= M3: attachment labels (docs/m3.md)
+ATTACHMENT_COLUMNS = [
+    "event_id", "event_title", "hazard_type", "country_iso3", "event_started_at", "event_last_observed_at",
+    "document_id", "source_id", "publisher", "published_at", "language", "title", "url",
+    "score", "spatial", "temporal", "text", "query_prior", "method", "decided_by",
+    "correct", "cause", "labelled_by",
+]
+
+
+def attached_rows(conn: sqlite3.Connection) -> list[dict]:
+    """Every attached (event, document) pair with the evidence a reviewer needs, in a stable order."""
+    rows = conn.execute(
+        """
+        SELECT ed.event_id, e.title AS event_title, e.hazard_type, e.country_iso3, e.started_at AS event_started_at,
+               e.last_observed_at AS event_last_observed_at, ed.document_id, d.source_id, d.publisher, d.published_at, d.language,
+               d.title, d.url, ed.score, ed.score_parts, ed.method, ed.decided_by
+        FROM event_document ed
+        JOIN event e ON e.event_id = ed.event_id
+        JOIN document d ON d.document_id = ed.document_id
+        WHERE ed.status = 'attached' AND d.removed_at IS NULL
+        ORDER BY ed.event_id, ed.document_id
+        """
+    ).fetchall()
+    out = []
+    for row in rows:
+        parts = json.loads(row["score_parts"]) if row["score_parts"] else {}
+        record = {k: row[k] for k in row.keys() if k != "score_parts"}
+        record.update(spatial=parts.get("spatial"), temporal=parts.get("temporal"), text=parts.get("text"), query_prior=parts.get("query_prior"), correct="", cause="", labelled_by="")
+        out.append(record)
+    return out
+
+
+def attachment_sample(conn: sqlite3.Connection, size: int | None = None, seed: int | None = None) -> list[dict]:
+    """`size` attached rows drawn at random (seeded for repeatability), event order kept for reading ease."""
+    import random
+
+    rows = attached_rows(conn)
+    size = config.ATTACHMENT_SAMPLE_SIZE if size is None else size
+    if len(rows) > size:
+        rows = random.Random(seed).sample(rows, size)
+    rows.sort(key=lambda r: (r["event_title"] or "", r["published_at"] or "", r["document_id"]))
+    return rows
+
+
+def write_attachment_sample(rows: list[dict], path: Path | None = None) -> Path:
+    path = path or config.ATTACHMENT_SAMPLE_CSV
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ATTACHMENT_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: ("" if row.get(k) is None else row.get(k)) for k in ATTACHMENT_COLUMNS})
+    return path
+
+
+def read_attachment_labels(path: Path | None = None) -> list[dict]:
+    path = path or config.ATTACHMENT_SAMPLE_CSV
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        return [dict(row) for row in csv.DictReader(handle)]
+
+
+def evaluate_attachments(rows: list[dict], target: float | None = None) -> dict:
+    """Precision of the attached rows a person labelled: `correct` yes/no, `cause` free text for the wrong ones."""
+    target = config.ATTACHMENT_PRECISION_TARGET if target is None else target
+    labelled = [r for r in rows if parse_label(r.get("correct")) is not None]
+    correct = [r for r in labelled if parse_label(r.get("correct"))]
+    wrong = [r for r in labelled if not parse_label(r.get("correct"))]
+    causes: dict[str, int] = {}
+    for row in wrong:
+        cause = (row.get("cause") or "unexplained").strip() or "unexplained"
+        causes[cause] = causes.get(cause, 0) + 1
+    precision = len(correct) / len(labelled) if labelled else None
+    return {
+        "rows": len(rows),
+        "labelled": len(labelled),
+        "unlabelled": len(rows) - len(labelled),
+        "correct": len(correct),
+        "wrong": wrong,
+        "causes": dict(sorted(causes.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "precision": precision,
+        "target": target,
+        "labelled_by": sorted({(r.get("labelled_by") or "").strip() for r in labelled if (r.get("labelled_by") or "").strip()}),
+        "passed": precision is not None and precision >= target and len(labelled) >= min(len(rows), config.ATTACHMENT_SAMPLE_SIZE),
+    }
+
+
+def render_attachment_evaluation(result: dict) -> str:
+    pct = "n/a" if result["precision"] is None else f"{100 * result['precision']:.1f}%"
+    lines = [
+        f"attached rows in the sample: {result['rows']} (labelled: {result['labelled']}, unlabelled: {result['unlabelled']})",
+        f"correct: {result['correct']}; wrong: {len(result['wrong'])}; precision: {pct} (target {100 * result['target']:.0f}%)",
+    ]
+    if result["causes"]:
+        lines.append("causes of the wrong attachments: " + ", ".join(f"{cause} ({n})" for cause, n in result["causes"].items()))
+    if result["labelled_by"]:
+        lines.append("labelled by: " + "; ".join(result["labelled_by"]))
+    lines.append(f"verdict: {'PASS' if result['passed'] else 'FAIL'}")
+    return "\n".join(lines)

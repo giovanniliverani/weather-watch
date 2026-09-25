@@ -13,6 +13,7 @@ dependencies = [
     "folium>=0.19",
     "streamlit-folium>=0.24",
     "pyyaml>=6",
+    "numpy>=2",
 ]
 
 [project.scripts]
@@ -20,6 +21,14 @@ eww = "eww.cli:app"
 
 [dependency-groups]
 dev = ["pytest>=8"]
+# Laptop-only enrichment (M3): the embedding model, spaCy and its two NER models. GitHub Actions runs
+# `uv sync --frozen --no-dev`, which leaves this group out, so the spine collector stays light.
+enrich = [
+    "sentence-transformers>=3",
+    "spacy>=3.8,<3.9",
+    "xx-ent-wiki-sm @ https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl",
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -23,7 +23,7 @@ Slides: [https://docs.google.com/presentation/d/1ue2GXbwYTAzx-kkgJ25d_5NGQZNjg_I
 
 ## Running it (M0: real events on a local map)
 
-The first milestone is built: GDACS and NASA EONET events from the last 30 days, in SQLite, on a folium map inside Streamlit. Python and SQL only. The plan, schema and GeoJSON contract are in [docs/architecture.md](docs/architecture.md); the M0 density verdict is in [docs/m0-density.md](docs/m0-density.md).
+The first milestone is built: GDACS and NASA EONET events from the last 30 days, in SQLite, on a folium map inside Streamlit. Python and SQL only. The plan, schema and GeoJSON contract are in [docs/architecture.md](docs/architecture.md); the M0 density verdict is in [docs/m0.md](docs/m0.md).
 
 Requirements: [uv](https://docs.astral.sh/uv/) and Python 3.12 (uv installs it). Optional: copy `.env.example` to `.env` and set `EWW_CONTACT` (it goes into the HTTP User-Agent).
 
@@ -34,7 +34,7 @@ uv run eww collect --source gdacs --source eonet --days 30 # fetch, write data/s
 uv run eww resolve                                         # source_record -> event (+ event_geometry)
 uv run eww doctor                                          # invariants: duplicates, unresolved, counts, heartbeat
 uv run eww export --since 30d > events.geojson             # the GeoJSON contract (eww/api.py)
-uv run eww report density --days 30                        # writes docs/m0-density.md
+uv run eww report density --days 30                        # writes docs/m0.md (M0's record)
 uv run streamlit run app.py                                # the map, at http://localhost:8501
 uv run pytest                                              # tests against a temporary SQLite file
 ```
@@ -49,7 +49,7 @@ Every command is idempotent: run `collect` twice and the second run reports 0 ne
 uv run eww sync                                   # git fetch origin data:data, ingest new snapshot and run files, resolve
 uv run eww ingest --from branch                   # only the replay step; --from local replays data/snapshots
 uv run eww collect --all-spine --out some-dir     # exactly what Actions runs: snapshots/ and runs/ under some-dir, no database
-uv run eww report volume                          # fresh clone of the data branch, pack size, yearly extrapolation -> docs/m1-volume.md
+uv run eww report volume                          # fresh clone of the data branch, pack size, yearly extrapolation -> docs/m1.md
 uv run eww task-scheduler                         # prints the schtasks commands that run sync at logon and every 2 hours
 ```
 
@@ -93,15 +93,64 @@ Identity rules apply when a record is first resolved. To re-apply changed rules 
 | `eww/matching.py`, `eww/merge.py`, `eww/events.py` | blocking radii, storm names and the score; `merge()` / `revert()` / `propose()` with `event_lineage`; the derived columns and geometries of an event |
 | `eww/severity.py`, `eww/geo.py` | the one severity function; haversine, WKT points, bounding boxes |
 | `eww/review.py`, `eww/labels.py` | the Review tab's lists and its three write actions; candidate pairs and the precision/recall evaluation |
-| `eww/api.py` | `events_geojson(...)`, the interface the viewer and any future frontend read |
+| `eww/api.py` | `events_geojson(...)`, the interface the viewer and any future frontend read; since M3 also `event_documents()` (News tab) and `attributions()` (About) |
+| `eww/enrich/` | the laptop enrichment collectors: `gdelt.py`, `reliefweb.py`, `queries.py` (what an event is called in the news), the per-event run loop |
+| `eww/documents.py`, `eww/lexicon.py`, `eww/data/lexicon.yaml` | canonical URLs, idempotent document rows, the 60-day purge; the hazard lexicon in English and Italian with negative patterns |
+| `eww/extract.py`, `eww/geocode.py`, `eww/embed.py`, `eww/attach.py` | lexicon + NER extraction; the three-tier cached geocoder and `eww geonames load`; the local embedding model; `attach_document()` and `--rebuild` |
+| `eww/ratelimit.py`, `eww/http.py` | limiters (minimum interval, sliding window with budgets), the rate-limited `Provider` per service, the structured log `eww doctor` reads |
+| `docs/m3.md` | the M3 record written by `eww eval attachments`: coverage, documents, geocoding, rate limits, hand-checked precision |
 | `eww/heartbeat.py`, `eww/gitdata.py`, `eww/report.py` | collector_run heartbeat and the `heartbeat` view; reading the data branch with git plumbing; the density and volume reports |
-| `app.py` | the Streamlit + folium viewer (Map and Review tabs); imports only `eww.api` and `eww.review` |
+| `app.py` | the Streamlit + folium viewer (Map, Review and About tabs; Details and News in the sidebar); imports only `eww.api` and `eww.review` |
 | `eww/data/countries.csv` | ISO3 -> continent, from GeoNames countryInfo.txt |
-| `data/` (gitignored except `data/labels/merge_pairs.csv`) | `eww.sqlite`, `snapshots/`, `runs/`, the regenerated `labels/merge_candidates.csv`; the hand-labelled `labels/merge_pairs.csv` is versioned |
+| `data/` (gitignored except `data/labels/`) | `eww.sqlite`, `snapshots/`, `runs/`, `models/` (the embedding model cache), the regenerated `labels/merge_candidates.csv`; the hand-labelled `labels/merge_pairs.csv` and `labels/attachment_sample.csv` are versioned |
+| `logs/providers.jsonl` (gitignored) | one line per external call and geocode lookup; the evidence behind `eww doctor`'s rate-limit and cache-hit numbers |
 | `.cursor/skills/playbook/files/` (mirrored in `.claude/`) | helpers that are not product code: `rebuild-database.py` (rebuild from snapshots and swap in with a backup), `seed-merge-labels.py` (seed the pairs file from feed facts) |
 | `.github/workflows/collect.yml`, the `data` branch | the scheduled collector and its raw archive |
 
-Data and attribution: Global Disaster Alert and Coordination System (GDACS), European Union, CC BY 4.0; NASA Earth Observatory Natural Event Tracker (EONET), public domain; Copernicus Emergency Management Service (© European Union), each activation credited as "Copernicus Emergency Management Service (© \<year\> European Union), \<code\>"; country data from GeoNames, CC BY 4.0; map tiles from OpenStreetMap contributors, ODbL.
+Data and attribution: Global Disaster Alert and Coordination System (GDACS), European Union, CC BY 4.0; NASA Earth Observatory Natural Event Tracker (EONET), public domain; Copernicus Emergency Management Service (© European Union), each activation credited as "Copernicus Emergency Management Service (© \<year\> European Union), \<code\>"; headlines and thumbnail references via the GDELT Project (gdeltproject.org); reports from ReliefWeb (UN OCHA), personal and non-commercial use; place names, coordinates and country data from GeoNames, CC BY 4.0; geocoding by Nominatim and map tiles © OpenStreetMap contributors, ODbL.
+
+### Headlines on pins (M3)
+
+**Status, 2026-09-22: built and parked.** Everything below exists and is covered by the test suite, but no real headline was ever collected. GDELT's DOC API answered HTTP 429 to every request from four unrelated networks over 22 hours, and independent measurements put its real tolerance at a fraction of the documented one request per 5 seconds, with blocks that retries prolong; ReliefWeb waits on an appname that is deferred. The collector now treats GDELT as best-effort (3 events a run, 15 s apart, 24 h of silence after a 429). Data collection is not the priority for now: the plan moves to M4–M7 with the spine as it is, and two ideas are recorded in the architecture document for later, GDELT's Web NGrams table of contents as the news firehose and typesafe.ai's Jev to classify its titles. `docs/m3.md` records the empty state and refreshes with `uv run eww eval attachments`.
+
+News is *attached* to events the feeds already know, never used to create them (docs/architecture.md §3, step 2). Two enrichment collectors run on the laptop inside `eww sync`: **GDELT DOC 2.0** queries one event at a time, best severity first and at most 40 events per run, with a query built from the event's country names in English and Italian, the admin1 names its titles carry, the storm name and the hazard keywords of the lexicon (`("Huelva" OR "Spain" OR "Spagna") (wildfire OR bushfire OR "incendio boschivo" ...)`), from the last successful run for that event (`enrichment_run`) or the event's start minus two days the first time, at least 15 seconds between calls, three events a run, and it stops for the run on a 429 and stays quiet for 24 hours afterwards. **ReliefWeb** reports are filtered by GLIDE number or by country and disaster type; without an approved `RELIEFWEB_APPNAME` in `.env` the collector logs one warning and skips. It is built and tested but **deferred as of 2026-09-22**: switching it on means requesting an appname on [ReliefWeb's form](https://docs.google.com/forms/d/e/1FAIpQLScR5EE_SBhweLLg_2xMCnXNbT6md4zxqIB00OL0yZWyrqX_Nw/viewform) and putting the approved name in `.env`, with no code change. Both write `document` rows (URL, canonical URL, title, publisher, time, language, a thumbnail *reference*; a ReliefWeb body is cut to 2,000 characters, in the stored payload too) and a `document_retrieval` row naming the event whose query found them. Re-runs are no-ops: `UNIQUE (source_id, url_canonical)`.
+
+Extraction is deterministic and stops at the first stage that classifies and locates: the hazard lexicon in English and Italian ([eww/data/lexicon.yaml](eww/data/lexicon.yaml), with negative patterns so "a flood of complaints" and "a storm of criticism" are nothing), spaCy NER (`xx_ent_wiki_sm` on every text, `en_core_web_sm` on English), then the geocoder ([eww/geocode.py](eww/geocode.py)): tier 1 the local GeoNames gazetteer (`eww geonames load`, cities500 plus admin1 and country rows, FTS5 over alternate names, country hint from the text's country names and demonyms or from the querying event, ties broken by population), tier 2 the GeoNames web service (`GEONAMES_USERNAME`, budgeted under 1,000 an hour and 10,000 a day), tier 3 the public Nominatim (4 requests a minute, one at a time). Every answer, misses included, is cached in `geocode_cache`; remote tiers stop once a document has one located place. Every document is embedded with `paraphrase-multilingual-MiniLM-L12-v2` on the CPU (`document_embedding`, float32 BLOBs; the model is cached under `data/models/`).
+
+`attach_document()` scores a document against the live events of its hazard class whose window overlaps its own and that a resolved place puts within 2R, or that share its country, or whose query fetched it: `s = 0.45 spatial + 0.25 temporal + 0.30 text` (no place: `0.20 temporal + 0.80 text`, text ≥ 0.60), `+0.10` when the event's own query fetched the document; ≥ 0.75 attached, 0.55–0.75 a candidate for the Review tab, below that nothing (and `eww purge` deletes unattached documents after 60 days). Every number lives in the `attachment:` section of [identity.yaml](identity.yaml). Resolved places of attached documents become `event_geometry` rows with `role = 'mention'` (stored, not drawn). Syndicated copies (cosine ≥ 0.95) are shown as one headline with a source count. The sidebar of a clicked pin gets a **News** tab (headline link, publisher, time, thumbnail by URL with the link as fallback), the Review tab gets **Candidate headlines** with Accept / Reject, and an **About** tab carries the credits (GDELT, ReliefWeb, GeoNames CC BY 4.0, OpenStreetMap ODbL).
+
+```bash
+uv sync --all-groups                               # also installs the 'enrich' group: sentence-transformers, spaCy and its two models (GitHub Actions never installs it)
+uv run eww geonames load                           # once: GeoNames cities500 + admin1 + countryInfo -> gazetteer_place, FTS rebuilt (CC BY 4.0)
+uv run eww sync                                    # ingest + resolve, then enrich (GDELT, ReliefWeb) + extract + embed + attach; --no-enrich / --no-attach to skip
+uv run eww enrich --source gdelt --max-events 40   # the collectors alone; ReliefWeb needs RELIEFWEB_APPNAME
+uv run eww extract                                 # lexicon + NER + geocoder for every document without an extraction (--no-remote: gazetteer only)
+uv run eww embed                                   # vectors for every document without one
+uv run eww attach                                  # decisions for undecided documents; on a copy: `eww --db data/copy.sqlite attach --rebuild`
+uv run eww eval attachments --sample 100           # data/labels/attachment_sample.csv: fill `correct` yes/no and `cause`
+uv run eww eval attachments                        # precision from the filled file -> docs/m3.md (also coverage, geocoding, rate limits)
+uv run eww purge --dry-run                         # what the 60-day purge of unattached documents would delete
+uv run eww doctor                                  # ... plus documents, coverage, geocode cache hit rate and the rate-limit maxima read from logs/providers.jsonl
+```
+
+Every external call goes through one rate-limited `Provider` per service ([eww/http.py](eww/http.py), [eww/ratelimit.py](eww/ratelimit.py)) and is appended to `logs/providers.jsonl` with its User-Agent; `eww doctor` proves from that file that Nominatim never exceeded 4 requests in a minute, GeoNames 1,000 in an hour, GDELT spacing never fell under 5 s and every call carried `EWW_CONTACT`. Set `EWW_CONTACT` in `.env` to the address you want published (the default is the repository URL). No language model is used anywhere in M3.
+
+Tuning: edit `attachment:` in `identity.yaml` or the lexicon, copy the database, run `eww --db data/copy.sqlite attach --rebuild` (every pipeline decision is re-made from scratch in document order; human accepts and rejects stay), then `eww eval attachments`. `EWW_TITLE_SIMILARITY=embedding` switches the cross-source identity score's text term from token Jaccard to the embedding cosine; it is off by default until `eww eval merges` has been re-run under it.
+
+### Where the documents are, and the `docs/m<N>.md` rule
+
+**Every milestone leaves exactly one record in `docs/`, named after the milestone and nothing else:** `docs/m0.md`, `docs/m1.md`, `docs/m2.md`, `docs/m3.md`, and so on through M6. Each is written by the command that measures that milestone, so re-running the command refreshes the record in place and its numbers are measured rather than remembered. `eww/config.py` holds the naming rule once, as `milestone_doc(n)`; a new report writer inherits it by calling that instead of naming a file.
+
+| Document | Written by | What it holds |
+|---|---|---|
+| [docs/architecture.md](docs/architecture.md) | by hand (the `update-architecture-doc` skill) | the plan of record: decisions, cost, the schema, the GeoJSON contract, the milestones and their exit criteria |
+| [docs/m0.md](docs/m0.md) | `uv run eww report density --days 30` | M0: events by hazard type and by continent, the density bar and its verdict |
+| [docs/m1.md](docs/m1.md) | `uv run eww report volume` | M1: the data branch's pack size, growth per day, the extrapolated year |
+| [docs/m2.md](docs/m2.md) | `uv run eww report identity --days 30` | M2: the identity parameters in force, joins by rule, how far apart the feeds place one event, proposals, labels |
+| [docs/m3.md](docs/m3.md) | `uv run eww eval attachments` | M3: attachment coverage, documents, geocoding, the rate-limit maxima, hand-checked precision and its errors |
+| [docs/planning-prompt.md](docs/planning-prompt.md) | by hand, once | the brief the architecture document was written against |
+
+**Finishing a milestone means two writes:** its `docs/m<N>.md` (run the command), then `docs/architecture.md` marked done with the measured numbers against each exit criterion. Same rule for M4 to M7; M7 (the React frontend, decided 2026-09-22) will be recorded by `uv run eww report frontend`.
 
 ## Proof of Concept
 

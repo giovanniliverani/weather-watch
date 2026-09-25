@@ -22,6 +22,23 @@ VERSION = "0.1"
 CONTACT = os.getenv("EWW_CONTACT", "https://github.com/giovanniliverani/weather-watch")
 USER_AGENT = f"extreme-weather-watch/{VERSION} (+{CONTACT})"
 
+# --------------------------------------------------------------------------- TLS trust
+# A proxy that inspects TLS (Zscaler and the like on a corporate laptop) re-signs every connection with
+# its own root. Windows trusts that root, Python's bundled certifi roots do not, so every HTTPS call
+# fails with CERTIFICATE_VERIFY_FAILED while a browser on the same machine is fine. The fix is to trust
+# the proxy's root as well: put a PEM holding certifi's roots plus the corporate one at the repository
+# root as `ca-bundle.pem`, or point EWW_CA_BUNDLE at it. Certificate verification stays ON; this widens
+# who may sign, it never skips the check. `eww doctor` prints which bundle is in force.
+CA_BUNDLE_DEFAULT = PROJECT_ROOT / "ca-bundle.pem"
+_ca_bundle = os.getenv("EWW_CA_BUNDLE")
+CA_BUNDLE: Path | None = Path(_ca_bundle) if _ca_bundle else (CA_BUNDLE_DEFAULT if CA_BUNDLE_DEFAULT.exists() else None)
+
+
+def verify_arg() -> str | bool:
+    """What every httpx client passes as `verify=`: a CA bundle path when one is configured, else True."""
+    return str(CA_BUNDLE) if CA_BUNDLE else True
+
+
 # --------------------------------------------------------------------------- paths
 DATA_DIR = Path(os.getenv("EWW_DATA_DIR", str(PROJECT_ROOT / "data")))
 DB_PATH = Path(os.getenv("EWW_DB_PATH", str(DATA_DIR / "eww.sqlite")))
@@ -286,6 +303,42 @@ def load_identity(path: Path | None = None) -> dict:
     weights = {name: number(weights_raw.get(name), f"score.weights.{name}", low=0, high=1) for name in ("spatial", "temporal", "text")}
     if abs(sum(weights.values()) - 1.0) > 1e-6:
         fail(f"score.weights must sum to 1, got {sum(weights.values()):g}")
+    # step 2 of §3, documents -> events (M3); every value has the default the architecture states
+    att = raw.get("attachment") or {}
+    if not isinstance(att, dict):
+        fail("attachment must be a mapping")
+    window = att.get("window") or {}
+    spatial_raw = att.get("spatial") or {}
+    att_weights_raw = att.get("weights") or {"spatial": 0.45, "temporal": 0.25, "text": 0.30}
+    att_weights = {name: number(att_weights_raw.get(name), f"attachment.weights.{name}", low=0, high=1) for name in ("spatial", "temporal", "text")}
+    if abs(sum(att_weights.values()) - 1.0) > 1e-6:
+        fail(f"attachment.weights must sum to 1, got {sum(att_weights.values()):g}")
+    no_place = att.get("no_place") or {}
+    no_place_weights_raw = no_place.get("weights") or {"temporal": 0.20, "text": 0.80}
+    no_place_weights = {name: number(no_place_weights_raw.get(name), f"attachment.no_place.weights.{name}", low=0, high=1) for name in ("temporal", "text")}
+    if abs(sum(no_place_weights.values()) - 1.0) > 1e-6:
+        fail(f"attachment.no_place.weights must sum to 1, got {sum(no_place_weights.values()):g}")
+    att_thresholds = att.get("thresholds") or {}
+    attach_threshold = number(att_thresholds.get("attach", 0.75), "attachment.thresholds.attach", low=0, high=1)
+    candidate_threshold = number(att_thresholds.get("candidate", 0.55), "attachment.thresholds.candidate", low=0, high=1)
+    if candidate_threshold >= attach_threshold:
+        fail("attachment.thresholds.candidate must be below attachment.thresholds.attach")
+    attachment = {
+        "doc_before_days": number(window.get("doc_before_days", 7), "attachment.window.doc_before_days", low=0),
+        "doc_after_days": number(window.get("doc_after_days", 1), "attachment.window.doc_after_days", low=0),
+        "event_before_days": number(window.get("event_before_days", 2), "attachment.window.event_before_days", low=0),
+        "event_after_days": number(window.get("event_after_days", 7), "attachment.window.event_after_days", low=0),
+        "decay_days": number(window.get("decay_days", 7), "attachment.window.decay_days", low=0.001),
+        "spatial_within_radius": number(spatial_raw.get("within_radius", 1.0), "attachment.spatial.within_radius", low=0, high=1),
+        "spatial_within_double_or_country": number(spatial_raw.get("within_double_or_country", 0.5), "attachment.spatial.within_double_or_country", low=0, high=1),
+        "weights": att_weights,
+        "no_place_weights": no_place_weights,
+        "no_place_min_text": number(no_place.get("min_text", 0.60), "attachment.no_place.min_text", low=0, high=1),
+        "query_prior": number(att.get("query_prior", 0.10), "attachment.query_prior", low=0, high=1),
+        "attach_threshold": attach_threshold,
+        "candidate_threshold": candidate_threshold,
+        "syndication_cosine": number(att.get("syndication_cosine", 0.95), "attachment.syndication_cosine", low=0, high=1),
+    }
     return {
         "path": str(path),
         "aggregation_radius_km": radius,
@@ -296,7 +349,7 @@ def load_identity(path: Path | None = None) -> dict:
         "weights": weights,
         "key_equal": number(score.get("key_equal", 1.0), "score.key_equal", low=0, high=1),
         "glide_equal": number(score.get("glide_equal", 1.0), "score.glide_equal", low=0, high=1),
-        "storm_name_equal": number(score.get("storm_name_equal", 0.95), "score.storm_name_equal", low=0, high=1),
+        "storm_name_equal": number(score.get("storm_name_equal", 0.95), "score.storm_name_equal", low=0, high=1),        "attachment": attachment,
     }
 
 
@@ -320,7 +373,7 @@ SCORE_WEIGHTS = IDENTITY["weights"]
 SCORE_KEY_EQUAL = IDENTITY["key_equal"]
 SCORE_GLIDE_EQUAL = IDENTITY["glide_equal"]
 SCORE_STORM_NAME_EQUAL = IDENTITY["storm_name_equal"]
-TITLE_SIMILARITY = "jaccard"  # M3 adds "embedding"; eww.matching.title_similarity is the hook
+TITLE_SIMILARITY = os.getenv("EWW_TITLE_SIMILARITY", "jaccard")  # "embedding": cosine of eww.embed vectors (M3); eww.matching.title_similarity is the hook
 TITLE_STOPWORDS = {"in", "of", "the", "and", "a", "an", "at", "on", "near", "region", "province", "area", "island"}
 # Removed before comparing storm names, so "Tropical Cyclone NORBERT-26" equals "Hurricane Norbert".
 STORM_WORDS = {"tropical", "cyclone", "hurricane", "typhoon", "storm", "depression", "severe", "super", "post", "subtropical", "remnants", "of", "in", "the"}
@@ -329,6 +382,19 @@ STORM_NAME_YEAR_SUFFIX_RE = re.compile(r"-\d{2}$")
 PRIMARY_SOURCE_ORDER = ["gdacs", "copernicus", "eonet"]
 EMS_SEVERITY_FLOOR = 0.66  # an event with a Copernicus activation scores at least this
 REVIEW_RECENT_MERGES = 50  # rows in the Review tab's merge list
+
+# --------------------------------------------------------------------------- milestone records (docs/m<N>.md)
+# One document per milestone, named after the milestone and nothing else: docs/m0.md, docs/m1.md, ...
+# Each is written (and rewritten) by the command that measures that milestone, so the numbers in it are
+# always measured rather than remembered: `eww report density` -> m0, `eww report volume` -> m1,
+# `eww report identity` -> m2, `eww eval attachments` -> m3. A new report writer inherits the rule by
+# calling milestone_doc() instead of naming a file.
+
+
+def milestone_doc(number: int) -> Path:
+    """The record of milestone `number`: docs/m<number>.md."""
+    return DOCS_DIR / f"m{number}.md"
+
 
 # --------------------------------------------------------------------------- labels (M2 exit criteria 1 and 2)
 LABELS_DIR = DATA_DIR / "labels"
@@ -355,6 +421,19 @@ SOURCES = {
         "terms_url": "https://www.copernicus.eu/en/access-data/copyright-and-licences",
         "attribution": "Copernicus Emergency Management Service (© European Union)",  # per activation: COPERNICUS_ATTRIBUTION
     },
+    # enrichment providers (M3): they supply documents, never events
+    "gdelt": {
+        "kind": "news",
+        "display_name": "The GDELT Project, DOC 2.0 API (news headlines and thumbnails)",
+        "terms_url": "https://www.gdeltproject.org/about.html#termsofuse",
+        "attribution": "Headlines and thumbnail references from the GDELT Project (gdeltproject.org)",
+    },
+    "reliefweb": {
+        "kind": "authority",
+        "display_name": "ReliefWeb (UN OCHA), reports",
+        "terms_url": "https://reliefweb.int/terms-conditions",
+        "attribution": "Reports from ReliefWeb, a service of UN OCHA; personal, non-commercial use",
+    },
 }
 
 # --------------------------------------------------------------------------- M0 density bar (docs/architecture.md §4)
@@ -365,3 +444,132 @@ DENSITY_BAR = {
     "min_per_group": 3,
     "min_europe_non_wildfire": 3,
 }
+
+# --------------------------------------------------------------------------- structured provider log (M3)
+# One JSON line per external call and per geocode lookup (eww.ratelimit); `eww doctor` reads it back to
+# prove the rate limits held. Outside data/ on purpose: data/ holds the SQLite file and model caches.
+LOG_DIR = Path(os.getenv("EWW_LOG_DIR", str(PROJECT_ROOT / "logs")))
+PROVIDER_LOG = LOG_DIR / "providers.jsonl"
+SECRET_PARAMS = {"username", "appname", "key", "api_key", "token"}  # never written to the log in clear
+
+# --------------------------------------------------------------------------- enrichment collectors (M3, laptop only)
+ENRICH_SOURCES = ["gdelt", "reliefweb"]  # what `eww sync` and `eww enrich` run, in this order
+ENRICH_ACTIVE_DAYS = 14  # events observed (or ended) in the last N days are queried, by severity
+ENRICH_MAX_EVENTS_PER_RUN = 40  # per provider per run, unless the provider module sets MAX_EVENTS_PER_RUN
+ENRICH_BACKFILL_DAYS = 2  # the first query for an event starts this many days before its start
+ENRICH_MIN_SEVERITY = 0.0  # events below this score are never queried (0 = every active event, capped above)
+
+# GDELT DOC 2.0 (https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/, read 2026-09-16). No key; the
+# informal limit is one request every 5 seconds, and the API answers 429 (or a plain-text notice with
+# status 200) when it is exceeded: on either the run stops calling GDELT. Articles carry url, url_mobile,
+# title, seendate (YYYYMMDDTHHMMSSZ), socialimage, domain, language, sourcecountry. The search lookback is
+# finite (about three months, verify), so a first query never starts earlier than GDELT_LOOKBACK_DAYS ago.
+# Measured, not documented: GDELT's published "one request every 5 seconds" is optimistic. Independent
+# measurements on 2026-07-27 got 1 request of 7 through at 6-second spacing, 4 of 12 at 16 seconds and
+# 3 of 8 at 60 seconds, and about 60 requests over 90 minutes triggered a block that no retry interval
+# cleared. Confirmed here 2026-09-21/22: 429 from four unrelated networks over 22 hours. So the API is
+# treated as best-effort garnish, not a dependency: a handful of the most severe events per run, widely
+# spaced, and a run that stops dead on the first refusal. Retrying harder is what keeps a caller blocked.
+GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+GDELT_MIN_INTERVAL_S = 15.0
+GDELT_MAX_EVENTS_PER_RUN = 3  # `eww enrich --max-events N` overrides it for a deliberate backfill
+GDELT_QUIET_HOURS_AFTER_429 = 0 if os.getenv("EWW_GDELT_IGNORE_QUIET") else 24  # after a refusal, leave the API alone this long rather than retrying
+GDELT_MAX_RECORDS = 250
+GDELT_LOOKBACK_DAYS = 90
+GDELT_MAX_PLACE_TERMS = 8
+GDELT_MAX_HAZARD_TERMS = 10
+GDELT_TIMEOUT_S = 90.0  # the API can take 15 s on a cold query
+
+# ReliefWeb API v2 (https://apidoc.reliefweb.int/, read 2026-09-21): a pre-approved appname is mandatory
+# since 2025-11-01 and the API answers 403 without one; 1,000 calls a day; terms: personal, non-commercial.
+# Reports are filtered by disaster.glide when the event has a GLIDE number, else country.iso3 plus the
+# disaster type names below, and date.original since the last successful run.
+RELIEFWEB_APPNAME = os.getenv("RELIEFWEB_APPNAME") or None
+RELIEFWEB_REPORTS_URL = "https://api.reliefweb.int/v2/reports"
+RELIEFWEB_DAILY_LIMIT = 1000
+RELIEFWEB_DAILY_BUDGET = 900  # the run stops before the service's own limit
+RELIEFWEB_MIN_INTERVAL_S = 1.0
+RELIEFWEB_PAGE_LIMIT = 100
+RELIEFWEB_FIELDS = ["title", "url", "date.original", "source.shortname", "disaster.glide", "country.iso3", "body", "language.code"]
+RELIEFWEB_DISASTER_TYPES = {
+    "flood": ["Flood", "Flash Flood"],
+    "tropical_cyclone": ["Tropical Cyclone"],
+    "severe_storm": ["Severe Local Storm", "Storm Surge"],
+    "wildfire": ["Wild Fire"],
+    "heatwave": ["Heat Wave"],
+    "coldwave": ["Cold Wave", "Snow Avalanche"],
+    "drought": ["Drought"],
+    "landslide": ["Land Slide", "Mud Slide"],
+    "volcano": ["Volcano"],
+    "earthquake": ["Earthquake"],
+    "tsunami": ["Tsunami"],
+}
+
+# --------------------------------------------------------------------------- documents (M3)
+EXCERPT_MAX_CHARS = 2000  # document.text_excerpt and the body kept inside the payload: never an article body
+# Query parameters dropped from url_canonical (tracking and share tokens); everything else is kept.
+TRACKING_PARAM_PREFIXES = ("utm_", "pk_", "mtm_", "piwik_", "hsa_", "vero_", "oly_", "wt_", "mc_", "ga_")
+TRACKING_PARAMS = frozenset({
+    "fbclid", "gclid", "dclid", "gbraid", "wbraid", "msclkid", "igshid", "yclid", "twclid", "ttclid", "_ga", "_gl",
+    "ref", "ref_src", "ref_url", "cmpid", "ocid", "smid", "s_cid", "spm", "ncid", "sr_share", "mkt_tok", "soc_src",
+    "soc_trk", "share", "shared", "source", "src", "via", "feature", "trk", "cid", "ito", "ns_mchannel", "ns_campaign",
+    "ns_source", "at_medium", "at_campaign", "outputType", "output", "amp", "__twitter_impression", "guccounter",
+})
+PURGE_UNATTACHED_DAYS = 60  # `eww purge`: unattached documents older than this go, with their extraction and embedding rows
+ATTACH_RETRY_DAYS = 14  # a document without any decision is re-scored on every run while younger than this
+
+# --------------------------------------------------------------------------- extraction (M3): lexicon + NER
+LEXICON_FILE = Path(os.getenv("EWW_LEXICON_FILE", str(Path(__file__).resolve().parent / "data" / "lexicon.yaml")))
+EXTRACT_METHOD = "lexicon+ner"
+SPACY_MODELS = {"xx": "xx_ent_wiki_sm", "en": "en_core_web_sm"}  # multilingual for every text, English adds GPE/LOC/FAC
+NER_LABELS = {"xx_ent_wiki_sm": ("LOC",), "en_core_web_sm": ("GPE", "LOC", "FAC")}
+EXTRACT_MAX_PLACES = 6  # place names geocoded per document, in order of appearance
+LEXICON_CONFIDENCE = {"strong": 0.9, "strong_repeated": 1.0, "weak": 0.5, "ambiguous_penalty": 0.2}
+
+# --------------------------------------------------------------------------- geocoding (M3): three tiers behind one interface
+# Tier 1: GeoNames dump (CC BY 4.0) loaded once by `eww geonames load`. Tier 2: GeoNames web service, one
+# credit per search, 1,000 an hour and 10,000 a day with a free username (read 2026-09-16); the run stays
+# under both with the budgets below. Tier 3: public Nominatim, whose usage policy (read 2026-09-21) allows
+# scripts run at regular intervals 4 requests a minute, single-threaded, with an identifying User-Agent
+# and cached results (ODbL attribution). Every answer, including "not found", is cached in geocode_cache.
+GEONAMES_DUMP_URL = "https://download.geonames.org/export/dump/"
+GEONAMES_DUMP_FILES = ("cities500.zip", "admin1CodesASCII.txt", "countryInfo.txt")
+GEONAMES_USERNAME = os.getenv("GEONAMES_USERNAME") or None
+GEONAMES_SEARCH_URL = "http://api.geonames.org/searchJSON"
+GEONAMES_MAX_ROWS = 5
+GEONAMES_HOURLY_LIMIT = 1000
+GEONAMES_HOURLY_BUDGET = 900
+GEONAMES_DAILY_LIMIT = 10000
+GEONAMES_DAILY_BUDGET = 9000
+GEONAMES_MIN_INTERVAL_S = 0.5
+NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
+NOMINATIM_PER_MINUTE = 4
+NOMINATIM_MIN_INTERVAL_S = 1.0
+GEOCODE_TIERS = ["gazetteer", "geonames", "nominatim"]  # tried in this order; a tier without credentials is skipped
+GAZETTEER_UNHINTED_MIN_POPULATION = 50000  # a name that misses inside the hinted country may match a big place elsewhere
+GEOCODE_MIN_NAME_CHARS = 3
+GEOCODE_REMOTE_CALLS_PER_RUN = 60  # after this many web-service calls in one run, remaining names stay unresolved (not cached) until the next run
+GEOCODER_ATTRIBUTIONS = {
+    "gazetteer": "Place names and coordinates from GeoNames (geonames.org), CC BY 4.0",
+    "geonames": "GeoNames web service (geonames.org), CC BY 4.0",
+    "nominatim": "Geocoding by Nominatim, data © OpenStreetMap contributors, ODbL",
+}
+
+# --------------------------------------------------------------------------- embeddings (M3)
+EMBED_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"  # sentence-transformers, 384 dimensions, CPU
+EMBED_DIM = 384
+EMBED_BATCH_SIZE = 64
+EMBED_EXCERPT_CHARS = 400  # of the excerpt, after the title, goes into the vector (the model reads 128 tokens)
+MODEL_DIR = Path(os.getenv("EWW_MODEL_DIR", str(DATA_DIR / "models")))  # the model cache lives under data/
+
+# --------------------------------------------------------------------------- attachment (docs/architecture.md §3, step 2)
+# The numbers live in identity.yaml (attachment:) next to the identity numbers they belong with.
+ATTACHMENT: dict = IDENTITY["attachment"]
+ATTACHMENT_SAMPLE_CSV = LABELS_DIR / "attachment_sample.csv"  # `eww eval attachments --sample 100` writes it; fill `correct`
+ATTACHMENT_SAMPLE_SIZE = 100
+ATTACHMENT_PRECISION_TARGET = 0.90  # M3 exit criterion 2: at least 90 of 100 hand-checked rows correct
+COVERAGE_MIN_SEVERITY = 0.66  # M3 exit criterion 1 ...
+COVERAGE_MIN_DOCUMENTS = 3  # ... at least this many attached documents ...
+COVERAGE_TARGET = 0.50  # ... on at least this share of severe events active in the last ENRICH_ACTIVE_DAYS days
+CACHE_HIT_RATE_TARGET = 0.70  # M3 exit criterion 4
+DOCTOR_LOG_DAYS = 7  # `eww doctor` reads the provider log this far back by default

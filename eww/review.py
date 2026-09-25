@@ -1,4 +1,5 @@
-"""The Review tab's backend: what it lists and the three write actions (accept, reject, revert).
+"""The Review tab's backend: what it lists and its write actions (accept, reject, revert; and since M3
+accept_attachment / reject_attachment for candidate headlines).
 
 The viewer imports eww.api and this module only. Each function opens its own connection when
 none is given, performs one action inside one transaction and returns plain values, so app.py
@@ -13,6 +14,7 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Iterator
 
+import eww.attach as attach_mod
 from eww import config, db
 from eww import merge as merge_mod
 from eww.clock import now_iso
@@ -146,12 +148,16 @@ def counts(conn: sqlite3.Connection | None = None) -> dict:
         by_status = {row[0]: row[1] for row in c.execute("SELECT status, COUNT(*) FROM merge_proposal GROUP BY 1")}
         merges = c.execute("SELECT COUNT(*) FROM event_lineage WHERE action = 'merge'").fetchone()[0]
         reverted = c.execute("SELECT COUNT(*) FROM event_lineage WHERE action = 'merge' AND reverted_by_lineage_id IS NOT NULL").fetchone()[0]
+        attachments = {row[0]: row[1] for row in c.execute("SELECT status, COUNT(*) FROM event_document GROUP BY 1")}
         return {
             "open_proposals": by_status.get("open", 0),
             "accepted_proposals": by_status.get("accepted", 0),
             "rejected_proposals": by_status.get("rejected", 0),
             "merges": merges,
             "merges_reverted": reverted,
+            "candidate_attachments": attachments.get("candidate", 0),
+            "attached_documents": attachments.get("attached", 0),
+            "rejected_documents": attachments.get("rejected", 0),
         }
 
 
@@ -186,3 +192,42 @@ def revert(lineage_id: str, conn: sqlite3.Connection | None = None, performed_by
     with _connection(conn) as c:
         with c:
             return merge_mod.revert(c, lineage_id, performed_by)
+
+
+# ----------------------------------------------------------------------------- M3: candidate attachments
+def candidate_attachments(conn: sqlite3.Connection | None = None, limit: int = 200) -> list[dict]:
+    """Documents scored between the candidate and attach thresholds, best score first, with their evidence."""
+    with _connection(conn) as c:
+        rows = c.execute(
+            """
+            SELECT ed.event_id, ed.document_id, ed.score, ed.score_parts, ed.method, ed.decided_at,
+                   e.title AS event_title, e.hazard_type, e.country_iso3, e.started_at, e.severity_label,
+                   d.title, d.url, d.publisher, d.published_at, d.source_id, d.kind, d.language, d.media_url, d.media_kind
+            FROM event_document ed
+            JOIN event e ON e.event_id = ed.event_id
+            JOIN document d ON d.document_id = ed.document_id
+            WHERE ed.status = 'candidate' AND d.removed_at IS NULL
+            ORDER BY ed.score DESC, ed.decided_at, ed.document_id
+            LIMIT ?
+            """,
+            (int(limit),),
+        ).fetchall()
+        out = []
+        for row in rows:
+            parts = json.loads(row["score_parts"]) if row["score_parts"] else {}
+            out.append({**dict(row), "parts": parts})
+        return out
+
+
+def accept_attachment(event_id: str, document_id: str, conn: sqlite3.Connection | None = None) -> None:
+    """The headline belongs to the event: status 'attached', decided by a person, mention geometries written."""
+    with _connection(conn) as c:
+        with c:
+            attach_mod.human_decide(c, event_id, document_id, "attached")
+
+
+def reject_attachment(event_id: str, document_id: str, conn: sqlite3.Connection | None = None) -> None:
+    """The headline is not about the event: status 'rejected'; the pipeline never re-proposes the pair."""
+    with _connection(conn) as c:
+        with c:
+            attach_mod.human_decide(c, event_id, document_id, "rejected")

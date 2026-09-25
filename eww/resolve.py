@@ -280,7 +280,7 @@ def _decide(conn: sqlite3.Connection, event_id: str, entity: matching.Entity, ra
     for row, scored, other in ranked:
         if scored.score < config.AUTO_MERGE_THRESHOLD:
             break
-        if scored.names_differ:
+        if row["event_id"] == event_id or scored.names_differ:  # never itself (a GLIDE-named event the record then joined as a sibling)
             continue
         inside, distance, radius = matching.within_aggregation_radius(entity, other)
         if not inside:
@@ -336,8 +336,8 @@ def _rescore_event(
     entity = matching.entity_from_event(conn, event, recs)
     if len(entity.source_ids) > 1:  # already a cross-source event: nothing left to find among the other feeds
         return None, None, 0
-    id_named = list(beyond)
-    seen = {row["event_id"] for row, _ in id_named}
+    id_named = [(row, other) for row, other in beyond if row["event_id"] != event_id]  # the record may have joined one of them as a sibling
+    seen = {row["event_id"] for row, _ in id_named} | {event_id}
     for row in _id_named_events(conn, entity, links, exclude=seen):
         id_named.append((row, matching.entity_from_event(conn, row)))
     ranked = _ranked_candidates(conn, entity, id_named)

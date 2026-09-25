@@ -1,4 +1,5 @@
-"""The `eww` command line: init-db, collect, ingest, sync, resolve, export, doctor, report, labels, eval, task-scheduler.
+"""The `eww` command line: init-db, collect, ingest, sync, resolve, enrich, extract, embed, attach, purge, geonames,
+export, doctor, identity, report, labels, eval, task-scheduler.
 
 Every command is idempotent and safe to re-run. Logs are structured key=value lines on stderr
 so that `eww export > events.geojson` stays clean JSON on stdout.
@@ -17,7 +18,12 @@ from typing import Optional
 
 import typer
 
-from eww import api, collectors, config, db, gitdata, heartbeat, ingest, labels, report, resolve, snapshots
+from eww import api, collectors, config, db, documents, gitdata, heartbeat, ingest, labels, ratelimit, report, resolve, snapshots
+from eww import attach as attach_mod
+from eww import embed as embed_mod
+from eww import enrich as enrich_mod
+from eww import extract as extract_mod
+from eww import geocode as geocode_mod
 from eww.clock import now_utc, parse_iso, parse_when, to_iso
 from eww.collect import collect_source, summary_line
 
@@ -33,6 +39,8 @@ labels_app = typer.Typer(help="Hand-labelling of cross-source merge pairs (data/
 app.add_typer(labels_app, name="labels")
 eval_app = typer.Typer(help="Evaluate the pipeline against hand labels.", no_args_is_help=True, rich_markup_mode=None)
 app.add_typer(eval_app, name="eval")
+geonames_app = typer.Typer(help="The local GeoNames gazetteer (tier 1 of the geocoder).", no_args_is_help=True, rich_markup_mode=None)
+app.add_typer(geonames_app, name="geonames")
 
 log = logging.getLogger("eww")
 _state: dict[str, Optional[Path]] = {"db": None}
@@ -176,13 +184,34 @@ def sync(
     refresh_days: int = typer.Option(30, "--refresh-days", help="Also refresh events seen in the last N days."),
     branch: str = typer.Option(config.DATA_BRANCH, "--branch"),
     repo: Optional[Path] = typer.Option(None, "--repo"),
+    do_enrich: bool = typer.Option(True, "--enrich/--no-enrich", help="Query GDELT and ReliefWeb for the active events (laptop only)."),
+    do_attach: bool = typer.Option(True, "--attach/--no-attach", help="Extract, embed and attach the new documents."),
+    max_events: Optional[int] = typer.Option(None, "--max-events", help=f"Events per provider per run (default {config.ENRICH_MAX_EVENTS_PER_RUN})."),
 ) -> None:
-    """git fetch + ingest (data branch and local files) + resolve, then one summary line."""
+    """git fetch + ingest + resolve, then enrich (GDELT, ReliefWeb) + extract + embed + attach, then one summary line."""
     started = time.monotonic()
     conn = _open()
     branch_result = ingest.ingest_branch(conn, branch=branch, repo=repo, fetch=fetch)
     local = ingest.ingest_pending(conn)
     stats = resolve.resolve(conn, refresh_days=refresh_days or None)
+    enrich_line = "enrich=skipped"
+    if do_enrich:
+        try:
+            enrich_stats = enrich_mod.run(conn, max_events=max_events)
+            enrich_line = "enrich=" + ",".join(f"{k}:{v.documents_new}new/{v.events_queried}ev" + ("(stopped)" if v.stopped else "") for k, v in enrich_stats.items())
+        except Exception as exc:  # the spine must never be held back by an enrichment failure
+            log.error("enrich failed error=%s: %s", type(exc).__name__, exc)
+            enrich_line = f"enrich=failed({type(exc).__name__})"
+    attach_line = "attach=skipped"
+    if do_attach:
+        try:
+            x = extract_mod.run(conn)
+            v = embed_mod.embed_documents(conn)
+            a = attach_mod.run(conn)
+            attach_line = f"extracted={x.documents} embedded={v.documents} attached={a.attached} candidates={a.candidates}"
+        except Exception as exc:
+            log.error("attach stage failed error=%s: %s", type(exc).__name__, exc)
+            attach_line = f"attach=failed({type(exc).__name__})"
     beat = heartbeat.summary(conn)
     fetched = {True: "ok", False: "failed", None: "skipped"}[branch_result.fetched]
     snapshots_new = branch_result.snapshots_new + sum(1 for r in local if not r.skipped)
@@ -193,6 +222,7 @@ def sync(
         f"records_new={records_new} records_changed={records_changed} runs_loaded={branch_result.runs_inserted} "
         f"events_created={stats.events_created} linked={stats.events_linked} merged={stats.events_merged} proposed={stats.proposals_created} gated={stats.records_gated} "
         f"events_changed={stats.events_changed} unresolved={resolve.unresolved_count(conn)} "
+        f"{enrich_line} {attach_line} "
         f"missed_runs_7d={beat['missed_runs_7d']}/{beat['expected_runs_7d']} took={time.monotonic() - started:.1f}s"
     )
 
@@ -246,7 +276,10 @@ def export(
 
 # ----------------------------------------------------------------------------- doctor
 @app.command()
-def doctor(days: int = typer.Option(30, "--days", help="Window for the 'events observed' count.")) -> None:
+def doctor(
+    days: int = typer.Option(30, "--days", help="Window for the 'events observed' count."),
+    log_days: int = typer.Option(config.DOCTOR_LOG_DAYS, "--log-days", help="How far back to read the provider log for cache hit rate and rate-limit maxima."),
+) -> None:
     """Print the invariant queries: duplicates, unresolved records, event counts, last runs, heartbeat."""
     conn = _open()
     now = now_utc()
@@ -306,13 +339,204 @@ def doctor(days: int = typer.Option(30, "--days", help="Window for the 'events o
     missed = heartbeat.missed_slots(conn, now)
     if missed:
         typer.echo("  most recent missed slots: " + ", ".join(missed))
+    _doctor_m3(conn, now, log_days)
+
+
+def _doctor_m3(conn, now, log_days: int) -> None:
+    """Documents, extraction, attachment coverage, geocoding and the rate limits (M3 exit criteria 1, 3, 4, 5)."""
+    d = documents.stats(conn)
+    typer.echo(
+        f"documents: {d['documents']} (" + (", ".join(f"{k} {v}" for k, v in d["by_source_kind"].items()) or "none") + f"); "
+        f"longest text_excerpt {d['longest_excerpt']} chars (limit {config.EXCERPT_MAX_CHARS}: {'PASS' if d['longest_excerpt'] <= config.EXCERPT_MAX_CHARS else 'FAIL'}); with a thumbnail reference {d['with_media']}"
+    )
+    typer.echo(
+        f"extracted {d['extracted']} (classified {d['classified']}, with a located place {d['located']}); embedded {d['embedded']}; "
+        f"retrieval rows {d['retrievals']}; event_document: " + (", ".join(f"{k} {v}" for k, v in d["decisions"].items()) or "none")
+        + "; decided by: " + (", ".join(f"{k} {v}" for k, v in d["decided_by"].items()) or "none") + f"; mention geometries {d['mentions']}; unattached documents {d['unattached']}"
+    )
+    runs = conn.execute("SELECT source_id, COUNT(*) AS n, MAX(queried_at) AS last FROM enrichment_run GROUP BY 1 ORDER BY 1").fetchall()
+    typer.echo("enrichment runs per provider: " + (", ".join(f"{r['source_id']} {r['n']} events (last {r['last']})" for r in runs) or "none yet"))
+    cov = attach_mod.coverage(conn, min_severity=config.COVERAGE_MIN_SEVERITY, days=config.ENRICH_ACTIVE_DAYS, min_documents=config.COVERAGE_MIN_DOCUMENTS, now=now)
+    share = "n/a" if cov["share"] is None else f"{100 * cov['share']:.0f}%"
+    verdict = "n/a" if cov["share"] is None else ("PASS" if cov["share"] >= config.COVERAGE_TARGET else "FAIL")
+    typer.echo(
+        f"coverage: {cov['covered']} of {cov['events']} events with severity >= {cov['min_severity']:g} active in the last {config.ENRICH_ACTIVE_DAYS} days "
+        f"have >= {cov['min_documents']} attached documents ({share}; target {100 * config.COVERAGE_TARGET:.0f}%: {verdict})"
+    )
+    for row in cov["rows"]:
+        typer.echo(f"  {row['attached']:3d} attached {row['candidates']:3d} candidates  {row['hazard_type']:17s} {row['severity_score']:.3f} {row['title']}")
+    typer.echo(f"gazetteer_place rows: {geocode_mod.gazetteer_count(conn)}; geocode_cache: " + (", ".join(f"{p} {v['entries']} ({v['found']} found)" for p, v in geocode_mod.cache_stats(conn).items()) or "empty"))
+    since = now - timedelta(days=log_days)
+    geo_log = ratelimit.geocode_report(since)
+    rate = "n/a" if geo_log["hit_rate"] is None else f"{100 * geo_log['hit_rate']:.0f}%"
+    rate_verdict = "n/a" if geo_log["hit_rate"] is None else ("PASS" if geo_log["hit_rate"] >= config.CACHE_HIT_RATE_TARGET else "below target")
+    typer.echo(f"geocode lookups since {to_iso(since)}: {geo_log['lookups']} (cache hits {geo_log['cache_hits']}, misses {geo_log['cache_misses']}; hit rate {rate}, target {100 * config.CACHE_HIT_RATE_TARGET:.0f}%: {rate_verdict})")
+    limits = ratelimit.limits_report(since)
+    typer.echo(f"provider calls since {to_iso(since)} ({ratelimit.log_path()}):")
+    if not limits:
+        typer.echo("  none logged")
+    for provider, r in limits.items():
+        spacing = "n/a" if r["min_spacing_s"] is None else f"{r['min_spacing_s']:.1f}s"
+        typer.echo(
+            f"  {provider}: calls={r['calls']} statuses={r['statuses']} max/minute={r['max_per_minute']} max/hour={r['max_per_hour']} max/day={r['max_per_day']} "
+            f"min spacing={spacing} user-agent carries {config.CONTACT!r}: {'yes' if r['user_agent_ok'] else 'NO'}"
+        )
+    checks = [
+        ("nominatim <= 4 requests in any minute", limits.get("nominatim", {}).get("max_per_minute", 0) <= config.NOMINATIM_PER_MINUTE),
+        ("geonames <= 1000 requests in any hour", limits.get("geonames", {}).get("max_per_hour", 0) <= config.GEONAMES_HOURLY_LIMIT),
+        ("gdelt spacing >= 5 s", (limits.get("gdelt", {}).get("min_spacing_s") or config.GDELT_MIN_INTERVAL_S) >= config.GDELT_MIN_INTERVAL_S),
+        ("every User-Agent carries the contact", all(r["user_agent_ok"] for r in limits.values())),
+    ]
+    typer.echo("rate limits (M3 exit criterion 3): " + "; ".join(f"{name}: {'PASS' if ok else 'FAIL'}" for name, ok in checks))
+    typer.echo(f"model cache: {config.MODEL_DIR} ({'present' if config.MODEL_DIR.exists() else 'not downloaded yet'}); logs: {config.LOG_DIR}")
+    typer.echo(f"TLS: certificates verified against {config.CA_BUNDLE or 'the bundled certifi roots'}"
+               + ("" if config.CA_BUNDLE else "; set EWW_CA_BUNDLE or drop ca-bundle.pem at the repository root if a proxy inspects TLS"))
+
+
+# ----------------------------------------------------------------------------- M3: enrichment, extraction, embeddings, attachment
+@app.command()
+def enrich(
+    source: Optional[list[str]] = typer.Option(None, "--source", "-s", help=f"Provider; repeat for several. Default: {', '.join(config.ENRICH_SOURCES)}."),
+    days: int = typer.Option(config.ENRICH_ACTIVE_DAYS, "--days", help="Events observed or ended in the last N days are queried."),
+    max_events: int = typer.Option(config.ENRICH_MAX_EVENTS_PER_RUN, "--max-events", help="Events per provider per run, best severity first (0 = every active event)."),
+) -> None:
+    """Query GDELT (and ReliefWeb when RELIEFWEB_APPNAME is set) for the active events; write document rows. Laptop only."""
+    unknown = [x for x in (source or []) if x not in config.ENRICH_SOURCES]
+    if unknown:
+        typer.echo(f"unknown provider(s): {', '.join(unknown)}; known: {', '.join(config.ENRICH_SOURCES)}", err=True)
+        raise typer.Exit(code=2)
+    conn = _open()
+    started = time.monotonic()
+    stats = enrich_mod.run(conn, source or None, days=days, max_events=max_events or None)
+    for source_id, st in stats.items():
+        typer.echo(
+            f"{source_id}: events considered={st.events_considered} queried={st.events_queried} skipped={st.events_skipped} "
+            f"items={st.items_seen} documents seen={st.documents_seen} new={st.documents_new} errors={st.errors}" + (f" stopped: {st.stopped}" if st.stopped else "")
+        )
+    typer.echo(f"{enrich_mod.summary_line(stats)} took={time.monotonic() - started:.1f}s; documents: {_count(conn, 'document')}")
+
+
+@app.command()
+def extract(
+    limit: Optional[int] = typer.Option(None, "--limit", help="At most N documents this run."),
+    remote: bool = typer.Option(True, "--remote/--no-remote", help="Allow the GeoNames web service and Nominatim tiers (else gazetteer only)."),
+) -> None:
+    """Classify (lexicon) and locate (NER + geocoder) every document without an extraction row."""
+    conn = _open()
+    if geocode_mod.gazetteer_count(conn) == 0:
+        typer.echo("the gazetteer is empty: run `eww geonames load` first (tier 1 of the geocoder)", err=True)
+    started = time.monotonic()
+    stats = extract_mod.run(conn, limit=limit, remote=remote)
+    typer.echo(
+        f"extracted {stats.documents} documents: classified={stats.classified} located={stats.located} place names={stats.names}; "
+        f"geocode lookups={stats.geocode_lookups} from cache={stats.cache_hits} remote calls={stats.remote_calls} took={time.monotonic() - started:.1f}s"
+    )
+
+
+@app.command("embed")
+def embed_cmd(limit: Optional[int] = typer.Option(None, "--limit", help="At most N documents this run.")) -> None:
+    """Encode every document without a vector with the local sentence-transformers model (CPU)."""
+    conn = _open()
+    started = time.monotonic()
+    stats = embed_mod.embed_documents(conn, limit=limit)
+    typer.echo(f"embedded {stats.documents} documents model={stats.model} dim={stats.dim} took={time.monotonic() - started:.1f}s; vectors: {_count(conn, 'document_embedding')}")
+
+
+@app.command("attach")
+def attach_cmd(
+    rebuild: bool = typer.Option(False, "--rebuild", help="Delete every pipeline decision and re-decide all documents from scratch (run it on a copy)."),
+    days: int = typer.Option(config.ATTACH_RETRY_DAYS, "--days", help="Without --rebuild: re-score undecided documents younger than N days."),
+) -> None:
+    """Score documents against events (docs/architecture.md §3, step 2) and write event_document rows."""
+    if rebuild and _state["db"] is None:
+        typer.echo("--rebuild re-decides every pipeline row: run it on a copy (`eww --db data/copy.sqlite attach --rebuild`)", err=True)
+        raise typer.Exit(code=2)
+    conn = _open()
+    started = time.monotonic()
+    stats = attach_mod.run(conn, rebuild=rebuild, days=days)
+    typer.echo(
+        f"attach: documents={stats.documents} attached={stats.attached} candidates={stats.candidates} none={stats.none} no_candidates={stats.no_candidates} "
+        f"mentions={stats.mentions}" + (f" deleted_pipeline_rows={stats.rebuilt_rows_deleted}" if rebuild else "") + f" took={time.monotonic() - started:.1f}s"
+    )
+    for row in conn.execute("SELECT status, decided_by, COUNT(*) AS n FROM event_document GROUP BY 1, 2 ORDER BY 1, 2"):
+        typer.echo(f"  event_document {row['status']} by {row['decided_by']}: {row['n']}")
+
+
+@app.command()
+def purge(
+    days: int = typer.Option(config.PURGE_UNATTACHED_DAYS, "--days", help="Documents older than this (published, else fetched) without an attached or candidate row."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Count only."),
+) -> None:
+    """Delete unattached documents older than N days with their extraction, embedding, retrieval and mention rows."""
+    conn = _open()
+    stats = documents.purge_unattached(conn, days, dry_run=dry_run)
+    verb = "would delete" if dry_run else "deleted"
+    typer.echo(
+        f"purge cutoff={stats.cutoff}: {verb} documents={stats.documents} extractions={stats.extractions} embeddings={stats.embeddings} "
+        f"retrievals={stats.retrievals} mentions={stats.mentions} rejected links={stats.rejected_links}; documents left: {_count(conn, 'document')}"
+    )
+
+
+@geonames_app.command("load")
+def geonames_load(
+    source_dir: Optional[Path] = typer.Option(None, "--from", help="Folder holding cities500.zip, admin1CodesASCII.txt and countryInfo.txt (default: download them)."),
+) -> None:
+    """Download the GeoNames dump (CC BY 4.0) into the gazetteer_place table and rebuild gazetteer_fts. Idempotent."""
+    import tempfile
+
+    conn = _open()
+    started = time.monotonic()
+    if source_dir is None:
+        tmp = Path(tempfile.mkdtemp(prefix="eww-geonames-"))
+        try:
+            geocode_mod.download_dump(tmp)
+            stats = geocode_mod.load_geonames(conn, tmp)
+        finally:
+            gitdata.rmtree(tmp)
+    else:
+        stats = geocode_mod.load_geonames(conn, source_dir)
+    typer.echo(f"gazetteer loaded: cities={stats.cities} admin1={stats.admin1} countries={stats.countries} skipped lines={stats.skipped} rows={geocode_mod.gazetteer_count(conn)} took={time.monotonic() - started:.1f}s")
+    typer.echo("attribution: place names and coordinates from GeoNames (geonames.org), CC BY 4.0")
+
+
+@eval_app.command("attachments")
+def eval_attachments(
+    sample: Optional[int] = typer.Option(None, "--sample", help="Write a CSV of N random attached rows to label (default path in config)."),
+    seed: Optional[int] = typer.Option(None, "--seed", help="Seed for the random sample."),
+    out: Optional[Path] = typer.Option(None, "--out", help=f"Sample CSV path (default {config.ATTACHMENT_SAMPLE_CSV})."),
+    labels_path: Optional[Path] = typer.Option(None, "--labels", help="The filled CSV to evaluate (default: the sample path)."),
+    report_path: Optional[Path] = typer.Option(None, "--report", help="Default: docs/m3.md (the milestone record)."),
+) -> None:
+    """--sample N writes attached rows for hand-checking; without it, computes precision from the filled file and writes docs/m3.md.
+
+    Fill `correct` with yes or no and, for the wrong ones, `cause`. Exit code 1 when precision is below the target.
+    """
+    conn = _open()
+    if sample is not None:
+        rows = labels.attachment_sample(conn, sample, seed)
+        path = labels.write_attachment_sample(rows, out)
+        typer.echo(f"written {path}: {len(rows)} attached rows to label (fill `correct` yes/no and `cause`), then run `eww eval attachments`")
+        return
+    path = labels_path or out or config.ATTACHMENT_SAMPLE_CSV
+    evaluation = None
+    if path.exists():
+        evaluation = labels.evaluate_attachments(labels.read_attachment_labels(path))
+        typer.echo(labels.render_attachment_evaluation(evaluation))
+    else:
+        typer.echo(f"{path} does not exist; run `eww eval attachments --sample 100` first (the report is written without the precision section)", err=True)
+    report_file, result = report.write_attachment_report(conn, evaluation, report_path)
+    cov = result["coverage"]
+    share = "n/a" if cov["share"] is None else f"{100 * cov['share']:.0f}%"
+    typer.echo(f"written {report_file}; coverage {cov['covered']}/{cov['events']} ({share}) of severe events with >= {cov['min_documents']} attached documents")
+    if evaluation is not None and not evaluation["passed"]:
+        raise typer.Exit(code=1)
 
 
 # ----------------------------------------------------------------------------- reports
 @report_app.command("density")
 def report_density(
     days: int = typer.Option(30, "--days"),
-    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m0-density.md"),
+    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m0.md (the milestone record)."),
 ) -> None:
     """Write the M0 density report and print the verdict."""
     conn = _open()
@@ -327,9 +551,9 @@ def report_density(
 def report_volume(
     remote: Optional[str] = typer.Option(None, "--remote", help="Repository URL or path to clone (default: the origin URL)."),
     branch: str = typer.Option(config.DATA_BRANCH, "--branch"),
-    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m1-volume.md"),
+    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m1.md (the milestone record)."),
 ) -> None:
-    """Clone the data branch fresh, measure `git count-objects -vH`, extrapolate a year, write docs/m1-volume.md."""
+    """Clone the data branch fresh, measure `git count-objects -vH`, extrapolate a year, write docs/m1.md."""
     url = remote or gitdata.remote_url()
     if not url:
         typer.echo("no remote URL; pass --remote", err=True)
@@ -346,7 +570,7 @@ def report_volume(
 @report_app.command("identity")
 def report_identity(
     days: int = typer.Option(30, "--days", help="Window for the event counts and the feed-disagreement table."),
-    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m2.md"),
+    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m2.md (the milestone record)."),
 ) -> None:
     """Write the M2 identity report: parameters in force, joins by rule, how far apart the feeds place one event, open proposals, labels."""
     conn = _open()
@@ -371,6 +595,14 @@ def identity_cmd() -> None:
     typer.echo(
         f"score: weights spatial {ident['weights']['spatial']:g} temporal {ident['weights']['temporal']:g} text {ident['weights']['text']:g}; "
         f"key {ident['key_equal']:g}, glide {ident['glide_equal']:g}, storm name {ident['storm_name_equal']:g}"
+    )
+    att = ident["attachment"]
+    typer.echo(
+        f"attachment: weights spatial {att['weights']['spatial']:g} temporal {att['weights']['temporal']:g} text {att['weights']['text']:g}; "
+        f"no place: temporal {att['no_place_weights']['temporal']:g} text {att['no_place_weights']['text']:g} (text >= {att['no_place_min_text']:g}); "
+        f"query prior {att['query_prior']:g}; attach >= {att['attach_threshold']:g}, candidate >= {att['candidate_threshold']:g}; "
+        f"windows: document -{att['doc_before_days']:g}/+{att['doc_after_days']:g} d, event -{att['event_before_days']:g}/+{att['event_after_days']:g} d, decay {att['decay_days']:g} d; "
+        f"syndication cosine {att['syndication_cosine']:g}; title similarity {config.TITLE_SIMILARITY}"
     )
 
 

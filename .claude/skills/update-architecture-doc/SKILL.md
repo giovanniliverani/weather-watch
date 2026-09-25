@@ -70,19 +70,19 @@ The document was written under rules that are load-bearing, not stylistic. Keep 
 - **Decide, don't survey.** A decisions row gives one choice, at most three sentences of justification, and what would change my mind. Never "you could use X or Y" — if a genuinely undecidable choice appears, it belongs in §7, not in the body.
 - **Exit criteria stay falsifiable.** Each one must be checkable by the user alone: a command with an expected output, a SQL query with an expected result, a file that must exist with stated contents. "Ingestion works" is not a criterion; "the second run reports 0 new rows" is.
 - **No time estimates.** Relative size only — small, medium, large — plus which milestone is most likely to overrun and why.
-- **At most seven milestones**, M0 through M6. If new work will not fit, it goes to §5, or it displaces something that moves to §5. Never add M7.
+- **No fixed number of milestones since 2026-09-22**, when the owner lifted the seven-milestone rule to add M7 (the React frontend). A new milestone still needs the user's explicit say-so, falsifiable exit criteria, a prompt in §6 and a `docs/m<N>.md` record; new work the user has not promoted goes to §5.
 - **No code** beyond the SQL DDL in §3 and the clustering pseudocode in §3. Implementation detail belongs in the §6 prompts, which are prose instructions and may name endpoints, parameters and fields.
 - **Uncertainty is marked, not smoothed.** Anything you did not verify today gets **verify** and an entry in §7.
-- **The user's constraints are fixed**, unless they say otherwise: one part-time developer, Python and SQL only with no JavaScript or CSS, a hard €25/month ceiling, localhost first, low ops appetite, no terms-of-service violations. A change that breaches one of these is not an edit to make quietly — flag it.
+- **The user's constraints are fixed**, unless they say otherwise: one part-time developer, Python and SQL for the pipeline (since 2026-09-22 JavaScript is allowed inside `web/` only, for the M7 React frontend), a hard €25/month ceiling, localhost first, low ops appetite, no terms-of-service violations. A change that breaches one of these is not an edit to make quietly — flag it.
 
-When a milestone is finished, mark it rather than deleting it. The record of what was tested and what it cost is the most valuable thing the document accumulates:
+When a milestone is finished, mark it rather than deleting it. The record of what was tested and what it cost is the most valuable thing the document accumulates. Check that the milestone's own document exists first — one per milestone, `docs/m<N>.md`, written by the command that measures it (`eww report density`, `eww report volume`, `eww report identity`, `eww eval attachments`) — because §4's numbers should be the ones that file reports:
 
 ```markdown
 ### M0 — Real events on a local map (small) — DONE 2026-09-24
 
 **Result.** 62 events in 30 days, 5 hazard types, 5 continents, 4 non-wildfire European
 events. Density bar passed, so the anchored-feeds bet holds and news-driven discovery
-stays in §5. Exit criteria 1–5 all met; see docs/m0-density.md.
+stays in §5. Exit criteria 1–5 all met; see docs/m0.md.
 ```
 
 ## Step 4 — Sweep for consistency
@@ -94,7 +94,7 @@ python .claude/skills/update-architecture-doc/scripts/check_doc.py
 # .cursor/skills/update-architecture-doc/scripts/check_doc.py is the identical mirror
 ```
 
-It hard-fails on missing or reordered sections, a summary over 200 words, more than seven milestones, a milestone with no exit criteria, milestones and prompts that do not correspond, unbalanced code fences, and time estimates in milestone bodies. It then prints numbers that need a human judgement rather than an assertion: the cost total row, every **verify** marker, the decision and open-question counts.
+It hard-fails on missing or reordered sections, a summary over 200 words, a milestone with no exit criteria, milestones and prompts that do not correspond, unbalanced code fences, and time estimates in milestone bodies. It then prints numbers that need a human judgement rather than an assertion: the cost total row, every **verify** marker, the decision and open-question counts.
 
 The checker cannot judge meaning. Verify these yourself:
 
@@ -139,7 +139,7 @@ Some news does not fit in a patch. The document already anticipates the importan
 
 - **The central bet failed** (free authoritative feeds do not put enough real events on the map). §0 names the bet and §4's M0 names the fallback: bring orphan clustering forward and promote GDELT to a discovery source. Apply the declared fallback, update §0 so the bet reads as tested-and-wrong, and say plainly in your report that the plan's centre moved.
 - **A constraint moved** (budget, skills, ops appetite, the laptop). This invalidates whole rows of §1 at once. Re-derive the affected decisions rather than patching one row, and flag which milestones change size.
-- **The user wants something outside v1.** Default to §5 with a reason. Promote it only if they said to, and then say what it displaces, because seven milestones is a hard ceiling.
+- **The user wants something outside v1.** Default to §5 with a reason. Promote it to a milestone only if they said to; there is no ceiling on the count since 2026-09-22, but every milestone costs a prompt, exit criteria and a record, so say what it displaces or delays.
 
 In all three cases, describe the reshaping in your report before applying it, so the user sees the shape of the change rather than discovering it in a diff.
 

@@ -1,9 +1,10 @@
-"""Extreme Weather Watch viewer: a Streamlit page with a folium map of events_geojson() and a Review tab.
+"""Extreme Weather Watch viewer: a Streamlit page with a folium map of events_geojson(), a Review tab and an About tab.
 
-Imports only eww.api (reads) and eww.review (the write actions behind Accept, Reject and Revert).
-No SQL, no HTML, no JavaScript, no CSS: every filter is a Streamlit widget whose value is passed
-to events_geojson(), and the sidebar is built from each feature's `properties`, exactly as a
-future frontend would build it from the same GeoJSON. Run with `uv run streamlit run app.py`.
+Imports only eww.api (reads: the GeoJSON contract, an event's attached documents, the attribution list)
+and eww.review (the write actions behind Accept, Reject and Revert). No SQL, no HTML, no JavaScript,
+no CSS: every filter is a Streamlit widget whose value is passed to events_geojson(), and the sidebar is
+built from each feature's `properties` plus event_documents(), exactly as a future frontend would build
+it from the same API. Run with `uv run streamlit run app.py`.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from eww import api, review
 DEFAULT_DAYS = 14
 SEVERITY_STEPS = [0.0, 0.33, 0.66, 1.0]
 SEVERITY_NAMES = {0.0: "any", 0.33: "0.33 (Green)", 0.66: "0.66 (Orange, EMS)", 1.0: "1.0 (Red)"}
+THUMBNAIL_WIDTH = 280
 PALETTE = {
     "flood": "#1f77b4",
     "tropical_cyclone": "#9467bd",
@@ -69,7 +71,7 @@ if meta["missed_runs_7d"] > api.STATUS_RED_MISSED_RUNS or stale:
 else:
     st.success(strip)
 
-tab_map, tab_review = st.tabs(["Map", "Review"])
+tab_map, tab_review, tab_about = st.tabs(["Map", "Review", "About"])
 
 # ---------------------------------------------------------------- map
 with tab_map:
@@ -101,13 +103,15 @@ with tab_map:
         ).add_to(cluster)
     plugins.LocateControl(auto_start=False, position="topleft").add_to(m)
     clicked = st_folium(m, returned_objects=["last_object_clicked_tooltip"], use_container_width=True, height=620)
+    st.caption("Headlines via the GDELT Project · reports via ReliefWeb (UN OCHA) · place names from GeoNames (CC BY 4.0) and Nominatim (© OpenStreetMap contributors, ODbL) · tiles © OpenStreetMap contributors. Full credits in the About tab.")
 
-# ---------------------------------------------------------------- review: proposals and merges (eww.review does the writes)
+# ---------------------------------------------------------------- review: proposals, merges and candidate headlines (eww.review does the writes)
 with tab_review:
     totals = review.counts()
     st.caption(
         f"{totals['open_proposals']} open proposals · {totals['accepted_proposals']} accepted · {totals['rejected_proposals']} rejected · "
-        f"{totals['merges']} merges, {totals['merges_reverted']} reverted"
+        f"{totals['merges']} merges, {totals['merges_reverted']} reverted · {totals['candidate_attachments']} candidate headlines · "
+        f"{totals['attached_documents']} headlines attached"
     )
     st.subheader("Open merge proposals")
     proposals = review.open_proposals()
@@ -139,6 +143,31 @@ with tab_review:
                     review.reject(proposal["proposal_id"])
                     st.rerun()
 
+    st.subheader("Candidate headlines")
+    st.caption("Documents that scored between the candidate and attach thresholds of identity.yaml: is the headline about this event?")
+    candidates = review.candidate_attachments()
+    if not candidates:
+        st.write("No candidate headlines: every scored document was either attached or left alone.")
+    for candidate in candidates:
+        with st.container(border=True):
+            parts = candidate["parts"]
+            text, action = st.columns([10, 2])
+            with text:
+                st.markdown(f"**Event: {candidate['event_title']}** · {candidate['hazard_type'].replace('_', ' ')} · {candidate['country_iso3'] or 'no country'} · started {candidate['started_at']}")
+                st.markdown(f"[{candidate['title'] or candidate['url']}]({candidate['url']})")
+                place = f" · place {parts['place']} ({parts['distance_km']} km)" if parts.get("place") else " · no resolved place"
+                st.caption(
+                    f"{candidate['publisher'] or candidate['source_id']} · {candidate['published_at'] or 'undated'} · score {candidate['score']:.2f} "
+                    f"(spatial {parts.get('spatial', '?')}, temporal {parts.get('temporal', '?')}, text {parts.get('text', '?')}, query prior {parts.get('query_prior', 0)}){place} · lexicon {parts.get('hazard', '?')}"
+                )
+            with action:
+                if st.button("Accept", key=f"acc-doc-{candidate['event_id']}-{candidate['document_id']}", type="primary", use_container_width=True):
+                    review.accept_attachment(candidate["event_id"], candidate["document_id"])
+                    st.rerun()
+                if st.button("Reject", key=f"rej-doc-{candidate['event_id']}-{candidate['document_id']}", use_container_width=True):
+                    review.reject_attachment(candidate["event_id"], candidate["document_id"])
+                    st.rerun()
+
     st.subheader(f"Last {review.RECENT_LIMIT} merges")
     merges = review.recent_merges()
     if not merges:
@@ -156,6 +185,23 @@ with tab_review:
                     review.revert(entry["lineage_id"])
                     st.rerun()
 
+# ---------------------------------------------------------------- about: where the data comes from
+with tab_about:
+    st.subheader("About")
+    st.write(
+        "Extreme Weather Watch shows recent hazard events from authoritative feeds on one map, with news headlines attached to each "
+        "event by a deterministic pipeline (hazard lexicon, named-entity recognition, a local gazetteer and a local embedding model; "
+        "no language model). Headlines are links and thumbnail references only: no article text or image is stored."
+    )
+    st.subheader("Data sources and credits")
+    for item in api.attributions():
+        line = f"**{item['name']}** — {item['attribution']}"
+        if item["terms_url"]:
+            line += f" · [terms]({item['terms_url']})"
+        st.markdown(line)
+    st.caption("Headlines: this product uses the GDELT Project (gdeltproject.org). Reports: ReliefWeb, personal and non-commercial use. "
+               "Geocoding: GeoNames data under CC BY 4.0; Nominatim results © OpenStreetMap contributors, ODbL. Map tiles © OpenStreetMap contributors.")
+
 # ---------------------------------------------------------------- details (sidebar)
 st.sidebar.header("Selected event")
 selected_id = (clicked or {}).get("last_object_clicked_tooltip")
@@ -167,19 +213,39 @@ else:
     st.sidebar.subheader(p["title"])
     if p["ems_activation"]:
         st.sidebar.badge("EMS activation", color="orange")
-    st.sidebar.write(f"Hazard: {p['hazard_type'].replace('_', ' ')}")
-    st.sidebar.write(f"Status: {p['status']}")
-    st.sidebar.write(f"Started: {p['started_at']}")
-    st.sidebar.write(f"Ended: {p['ended_at'] or 'ongoing'}")
-    st.sidebar.write(f"Last observed: {p['last_observed_at']}")
-    st.sidebar.write(f"Severity: {p['severity_label'] or 'not stated'} (score {p['severity_score']})")
-    st.sidebar.write(f"Country: {p['country_iso3'] or 'not stated'}")
-    st.sidebar.write(f"Sources: {', '.join(p['source_ids'])}")
-    if p["glide_number"]:
-        st.sidebar.write(f"GLIDE: {p['glide_number']}")
-    if p["detail_url"]:
-        st.sidebar.link_button("Open the source's page", p["detail_url"])
-    st.sidebar.caption(f"event_id {p['event_id']}")
+    details_tab, news_tab = st.sidebar.tabs(["Details", f"News ({p['doc_count']})"])
+    with details_tab:
+        st.write(f"Hazard: {p['hazard_type'].replace('_', ' ')}")
+        st.write(f"Status: {p['status']}")
+        st.write(f"Started: {p['started_at']}")
+        st.write(f"Ended: {p['ended_at'] or 'ongoing'}")
+        st.write(f"Last observed: {p['last_observed_at']}")
+        st.write(f"Severity: {p['severity_label'] or 'not stated'} (score {p['severity_score']})")
+        st.write(f"Country: {p['country_iso3'] or 'not stated'}")
+        st.write(f"Sources: {', '.join(p['source_ids'])}")
+        if p["glide_number"]:
+            st.write(f"GLIDE: {p['glide_number']}")
+        st.write(f"Attached headlines and reports: {p['doc_count']}")
+        if p["detail_url"]:
+            st.link_button("Open the source's page", p["detail_url"])
+        st.caption(f"event_id {p['event_id']}")
+    with news_tab:
+        items = api.event_documents(p["event_id"])
+        if not items:
+            st.write("No headlines attached yet. Run `uv run eww sync` to query GDELT and ReliefWeb for the active events.")
+        for item in items:
+            st.markdown(f"**[{item['title'] or item['url']}]({item['url']})**")
+            when = (item["published_at"] or "undated").replace("T", " ").rstrip("Z")
+            line = f"{item['publisher'] or item['source_id']} · {when}"
+            if item["copies"] > 1:
+                line += f" · {item['copies']} copies from {len(item['publishers'])} source{'s' if len(item['publishers']) != 1 else ''}: {', '.join(item['publishers'][:4])}" + (" …" if len(item["publishers"]) > 4 else "")
+            st.caption(line)
+            if item["media_url"] and item["media_kind"] == "image":
+                try:
+                    st.image(item["media_url"], width=THUMBNAIL_WIDTH)
+                except Exception:  # an unloadable reference falls back to the link
+                    st.markdown(f"[thumbnail]({item['media_url']})")
+        st.caption("Headlines via the GDELT Project; reports via ReliefWeb. Thumbnails load from the publisher's own URL and are never stored.")
 
 st.sidebar.header("Legend")
 for hazard in api.HAZARD_TYPES:

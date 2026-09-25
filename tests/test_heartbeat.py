@@ -90,8 +90,8 @@ def test_migration_from_version_1_adds_the_same_view(tmp_path):
         old.execute("INSERT INTO schema_version (version, applied_at) VALUES (1, '2026-09-16T00:00:00Z')")
     assert db.schema_version(old) == 1
     assert db.init_db(old) is True
-    assert db.schema_version(old) == 2
-    assert [r[0] for r in old.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2]
+    assert db.schema_version(old) == db.SCHEMA_VERSION == 3
+    assert [r[0] for r in old.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3]
     migrated_view = old.execute("SELECT sql FROM sqlite_master WHERE type = 'view' AND name = 'heartbeat'").fetchone()[0]
     assert migrated_view == fresh_view
     assert db.init_db(old) is False  # nothing more to do

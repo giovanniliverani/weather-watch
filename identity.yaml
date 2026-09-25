@@ -50,3 +50,28 @@ score:
   key_equal: 1.0          # one feed cites the other's id (Copernicus gdacsId, the GDACS URL EONET carries)
   glide_equal: 1.0        # both carry the same GLIDE number
   storm_name_equal: 0.95  # both are named storms with the same normalised name inside the window
+
+attachment:
+  # Step 2 of "How identity is decided" (docs/architecture.md §3): documents -> events. A document is
+  # scored against live events of its hazard class whose window overlaps its own; the best score at or
+  # above `attach` attaches it, between `candidate` and `attach` it waits in the Review tab, below that
+  # nothing is written and the document is purged after 60 days. Changing a number here changes future
+  # decisions; `uv run eww attach --rebuild` on a copy of the database re-decides every pipeline row.
+  window:
+    doc_before_days: 7      # a document's window runs from published_at - 7 d ...
+    doc_after_days: 1       # ... to published_at + 1 d
+    event_before_days: 2    # an event's window runs from started_at - 2 d ...
+    event_after_days: 7     # ... to coalesce(ended_at, last_observed_at) + 7 d
+    decay_days: 7           # temporal score: 1 inside the event window, linear to 0 over the following days
+  spatial:
+    within_radius: 1.0            # a resolved place within the hazard's blocking radius R of the event
+    within_double_or_country: 0.5 # within 2R, or the same country
+  weights: {spatial: 0.45, temporal: 0.25, text: 0.30}   # must sum to 1
+  no_place:
+    weights: {temporal: 0.20, text: 0.80}   # a document with no resolved place: text carries it ...
+    min_text: 0.60                          # ... and must be at least this similar to the event
+  query_prior: 0.10       # added when the document was retrieved by a query built for that event
+  thresholds:
+    attach: 0.75          # at or above: event_document status 'attached'
+    candidate: 0.55       # at or above: 'candidate', for the Review tab
+  syndication_cosine: 0.95   # documents this similar are one headline with several sources in the sidebar
