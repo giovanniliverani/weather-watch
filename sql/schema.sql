@@ -271,9 +271,11 @@ CREATE TABLE event_revision (       -- field-level edit history; the pipeline ma
   UNIQUE (event_id, revision, field)
 ) STRICT;
 
--- ============================================================ heartbeat (schema version 2)
--- Every 3-hour slot from the first collector run to now, and whether an 'ok' run started inside the
--- slot's 45-minute grace window (docs/architecture.md §4, M1). Plain SQL apart from strftime/printf.
+-- ============================================================ heartbeat (schema version 2, revised in version 5)
+-- Every 3-hour slot from the first spine collector run to now, and whether an 'ok' run of gdacs, eonet
+-- or copernicus started inside the slot's 45-minute grace window (docs/architecture.md §4, M1).
+-- YouTube quota rows in collector_run are excluded: a search must not mark a spine slot as served.
+-- Plain SQL apart from strftime/printf.
 CREATE VIEW heartbeat AS
 WITH RECURSIVE
   bounds AS (
@@ -282,6 +284,7 @@ WITH RECURSIVE
            strftime('%Y-%m-%dT', 'now')
              || printf('%02d', (CAST(strftime('%H', 'now') AS INTEGER) / 3) * 3) || ':00:00Z' AS last_slot
     FROM collector_run
+    WHERE source_id IN ('gdacs', 'eonet', 'copernicus')
   ),
   slots(scheduled_for) AS (
     SELECT first_slot FROM bounds WHERE first_slot IS NOT NULL
@@ -292,13 +295,13 @@ WITH RECURSIVE
 SELECT s.scheduled_for,
        strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes') AS deadline,
        (SELECT COUNT(*) FROM collector_run r
-         WHERE r.status = 'ok' AND r.started_at >= s.scheduled_for
+         WHERE r.status = 'ok' AND r.source_id IN ('gdacs', 'eonet', 'copernicus') AND r.started_at >= s.scheduled_for
            AND r.started_at < strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes')) AS ok_runs,
        (SELECT COUNT(DISTINCT r.source_id) FROM collector_run r
-         WHERE r.status = 'ok' AND r.started_at >= s.scheduled_for
+         WHERE r.status = 'ok' AND r.source_id IN ('gdacs', 'eonet', 'copernicus') AND r.started_at >= s.scheduled_for
            AND r.started_at < strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes')) AS sources_ok,
        EXISTS (SELECT 1 FROM collector_run r
-         WHERE r.status = 'ok' AND r.started_at >= s.scheduled_for
+         WHERE r.status = 'ok' AND r.source_id IN ('gdacs', 'eonet', 'copernicus') AND r.started_at >= s.scheduled_for
            AND r.started_at < strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes')) AS served
 FROM slots s;
 

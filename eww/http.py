@@ -104,7 +104,7 @@ class Provider:
     def user_agent(self) -> str:
         return str(self.http.headers.get("User-Agent", ""))
 
-    def request(self, method: str, url: str, *, params: dict | None = None, json: Any = None) -> httpx.Response:
+    def request(self, method: str, url: str, *, params=None, json: Any = None, data=None, auth=None) -> httpx.Response:
         last_exc: Exception | None = None
         for attempt in range(1, self.retries + 1):
             waited = sum(limiter.wait() for limiter in self.limiters)  # RateLimitExceeded when a budget is spent
@@ -114,7 +114,7 @@ class Provider:
             error: str | None = None
             response: httpx.Response | None = None
             try:
-                response = self.http.request(method, url, params=params, json=json)
+                response = self.http.request(method, url, params=params, json=json, data=data, auth=auth)
                 status = response.status_code
             except httpx.TransportError as exc:
                 last_exc = exc
@@ -146,6 +146,11 @@ class Provider:
 
     def post_json(self, url: str, *, params: dict | None = None, json: Any = None) -> tuple[int, Any]:
         response = self.request("POST", url, params=params, json=json)
+        return response.status_code, _decode(response)
+
+    def post_form(self, url: str, data: dict, *, auth=None) -> tuple[int, Any]:
+        """POST a form body. `data` is not written to the provider log (it may hold a secret)."""
+        response = self.request("POST", url, data=data, auth=auth)
         return response.status_code, _decode(response)
 
 

@@ -148,6 +148,17 @@ def upsert_document(
     return UpsertResult(document_id, True)
 
 
+def set_removed(conn: sqlite3.Connection, document_ids: list[str], removed_at: str) -> int:
+    """Set removed_at on live documents. Hidden everywhere once set; a later sweep can set it, never clear it here."""
+    removed = 0
+    for document_id in document_ids:
+        removed += conn.execute(
+            "UPDATE document SET removed_at = ? WHERE document_id = ? AND removed_at IS NULL",
+            (removed_at, document_id),
+        ).rowcount
+    return removed
+
+
 def record_retrieval(conn: sqlite3.Connection, document_id: str, event_id: str, source_id: str, retrieved_at: str | None = None) -> bool:
     """Remember that the query built for `event_id` returned this document. True when the row is new."""
     cursor = conn.execute(

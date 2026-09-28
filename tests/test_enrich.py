@@ -160,7 +160,7 @@ def test_enrich_run_records_windows_and_stops_on_a_rate_limit(conn, data_dir, mo
         return httpx.Response(200, json=articles(2, prefix=f"https://site{count['n']}.example.com/a"))
 
     monkeypatch.setattr(gdelt, "collector", lambda http=None, sleep=None: gdelt.GdeltCollector(http=mock_client(handler), sleep=lambda s: None))
-    now = now_utc()
+    now = parse_iso("2026-09-20T12:00:00Z")  # inside the fixture's 14-day window; wall-clock now would age the Sep 10 flood out
     stats = enrich.run(conn, ["gdelt", "reliefweb"], now=now)
     g = stats["gdelt"]
     assert g.events_considered == 3 and g.events_queried == 1 and g.stopped and "429" in g.stopped

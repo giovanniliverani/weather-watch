@@ -1,6 +1,6 @@
 # Extreme Weather Watch: architecture and sequencing
 
-*Written 2026-09-16, last updated 2026-09-25 after M4, against the README and constraints in `docs/planning-prompt.md`. Facts about third-party services were checked against their official pages on those dates; anything marked **verify** is either unconfirmed or likely to change.*
+*Written 2026-09-16, last updated 2026-09-26 after M5 was measured, against the README and constraints in `docs/planning-prompt.md`. Facts about third-party services were checked against their official pages on those dates; anything marked **verify** is either unconfirmed or likely to change.*
 
 ## 0. Summary
 
@@ -20,7 +20,7 @@
 | Map rendering and viewer | Streamlit + streamlit-folium (Leaflet), one process; MarkerCluster, coloured circle markers by hazard, footprint polygons, LocateControl for "centre on me"; details in the sidebar on click; filters as Streamlit widgets | Zero JavaScript and zero CSS. Click handling, clustering and browser geolocation come from plugins; current versions (folium 0.20, streamlit-folium 0.27, verified) support partial re-render so the map does not reset on every widget change. | Sluggish beyond a few thousand markers → pydeck, still Python. You decide to learn JavaScript → MapLibre reading the same GeoJSON. |
 | Interface boundary | A GeoJSON FeatureCollection from `eww.api.events_geojson(filters)`, exported by CLI from M0 and served by FastAPI in M6 (§2 has the contract) | Any web map can read it; it forces all logic below the boundary; it is testable in geojson.io with no code. | None. |
 | Source spine | GDACS (JSON SEARCH API, RSS as fallback), NASA EONET v3 and, since M2, Copernicus EMS Rapid Mapping activations (the public activations list, about 8 per 30 days) create events; a Copernicus activation joins the GDACS event its `gdacsId` names when it has one and sets the EMS severity flag either way | Free, keyless, typed hazard codes, stable ids with episodes, coordinates, alert levels, GLIDE numbers, and permissive licences (GDACS CC BY 4.0, NASA public domain, Copernicus open by EU regulation, all verified; the licence page cited in the `source` seed is marked **verify** in §7). Deterministic discovery is what makes the budget work; 8 of 9 activations in the 30-day window of 2026-09-17 had no GDACS twin, so an activation must be allowed to be an event. | M0's density check fails for weather hazards → bring orphan clustering forward and add Meteoalarm (CC BY 4.0, verified) as a warnings layer. |
-| Enrichment sources | **Parked with M3 on 2026-09-22; collection is not the priority.** What exists: a GDELT DOC 2.0 collector (built, best-effort only: 3 events a run, 15 s apart, 24 h of silence after a 429) and a ReliefWeb reports collector (built, deferred until you request an appname). The recorded path for news later: GDELT's **Web NGrams table of contents**, a static file every 15 minutes (478 KB, about 3,160 articles with url, title, date, language and an image reference on 92%; no key, no rate limit, files kept a week or more), filtered by the lexicon (1.1% of titles, about 3,300 a day) and classified into the hazard schema by **typesafe.ai's Jev** (structured, calibrated outputs; §7). The 11.9 MB quadgram file is out. Bluesky, YouTube, Mastodon unchanged for M5 | The DOC API's real tolerance is a fraction of its documented one request per 5 s and its blocks outlast any retry interval, measured by others on 2026-07-27 and here on 2026-09-21/22 from four networks; it cannot be a dependency. The TOC is what GDELT itself tells heavy users to use, and it carries the thumbnail that made GDELT attractive. | A working ReliefWeb appname, or the NGrams path built, reopens M3's measurement. A source's terms change the way the Guardian's did → drop it. |
+| Enrichment sources | **Parked with M3 on 2026-09-22; collection is not the priority.** What exists: a GDELT DOC 2.0 collector (built, best-effort only: 3 events a run, 15 s apart, 24 h of silence after a 429) and a ReliefWeb reports collector (built, deferred until you request an appname). The recorded path for news later: GDELT's **Web NGrams table of contents**, a static file every 15 minutes (478 KB, about 3,160 articles with url, title, date, language and an image reference on 92%; no key, no rate limit, files kept a week or more), filtered by the lexicon (1.1% of titles, about 3,300 a day) and classified into the hazard schema by **typesafe.ai's Jev** (structured, calibrated outputs; §7). The 11.9 MB quadgram file is out. Bluesky, YouTube, Mastodon and a flagged Reddit collector were built in M5; Mastodon is the one that ran, and Bluesky, YouTube and Reddit stay off until their secrets or approval exist. No billing account is attached for a YouTube key | The DOC API's real tolerance is a fraction of its documented one request per 5 s and its blocks outlast any retry interval, measured by others on 2026-07-27 and here on 2026-09-21/22 from four networks; it cannot be a dependency. The TOC is what GDELT itself tells heavy users to use, and it carries the thumbnail that made GDELT attractive. | A working ReliefWeb appname, or the NGrams path built, reopens M3's measurement. A source's terms change the way the Guardian's did → drop it. |
 | Dropped sources | X, Instagram, TikTok, Facebook, Telegram, Google News RSS, Guardian Open Platform, NewsAPI, NYT, browser automation of any kind | X is pay-per-read only; Instagram and TikTok need business accounts or institutional approval; Google News RSS is licensed for personal feed readers only; the Guardian bars AI use and retention over 24 h; NewsAPI's free tier is development-only with a 24 h delay; browser automation is where terms-of-service exposure lives. | X at $0.005 per read for at most 1,000 reads a month, later, if you decide the value is there. |
 | Geocoding | Tier 0: coordinates from the feeds. Tier 1: local GeoNames `cities500` gazetteer with full-text search. Tier 2: GeoNames web service (10,000 credits/day with a free username, verified). Tier 3: Nominatim at 4 requests/minute, which is its stated limit for scripts run on a schedule (verified), for streets and landmarks only. Every hit and every miss cached forever | Deterministic, free, and offline for most place names in news about disasters (towns, provinces, countries). Nominatim's scheduled-script limit rules it out as the primary. | Miss rate above 20% on the review sample → load GeoNames `allCountries` locally (about 1.5 GB) or self-host Photon. |
 | Clustering approach | Anchored identity (§3): feed ids create events; deterministic cross-source keys (Copernicus `gdacsId`, the GDACS URL EONET cites) join before any score; cross-source merge by hazard-class blocking, hazard-specific radius and time window, GLIDE and storm-name equality; auto-merge at 0.90, review queue 0.60–0.90; **two feeds' records share a pin automatically only inside the aggregation radius of `identity.yaml`** (25 km by default, 200 km for cyclones, 100 km for severe storms, 250 km for drought and temperature extremes; closest pair of positions), a shared id or GLIDE included, otherwise a proposal; a named storm blocks basin-wide (5,000 km) and merges on its name, two differently named storms never merge automatically, a pair one feed keys apart is never scored, an event is re-scored when a later record of its own arrives, and a merge a person reverted is never repeated by the pipeline; documents attach at 0.75 on a spatial, temporal and embedding score and never create events | Bounded, deterministic where it matters, every signal free. The two asymmetries (§3) are handled by conservatism and reversibility rather than by a smarter model. A cited id is strong evidence but not proof: on 2026-09-17 GDACS had reused wildfire ids, so EONET items citing them pointed at fires on other continents; the radius is what caught it. Measured the same day after the gate: 913 records joined by key inside the radius, 14 automatic merges, 39 proposals of which 27 kept apart by the radius, 0 false merges and 83% recall on the 48 labelled pairs. | Any wrong auto-merge on the labelled pairs → raise the threshold or shrink the radius. Recall below 60% → lower the review threshold, never the auto threshold. Two same-named storms inside 10 days and 5,000 km → require the basin to match or lower `named_storm_km`. Correct pairs piling up as proposals for one hazard → widen that hazard's radius in `identity.yaml`, never the default. |
@@ -106,7 +106,7 @@ Two caveats and one thing it forecloses. References rot: publisher `og:image` UR
 
 **How much web technology you must learn.** Zero JavaScript. Zero CSS. About 15 lines of templated HTML if you want rich popups, and none if you use the sidebar. Three concepts: a URL with query parameters, the shape of a GeoJSON file, and that a browser on your machine talks to `localhost:8501`. Separately, about 40 lines of GitHub Actions YAML, which is not web technology but is new.
 
-**What you must avoid so the swap stays cheap** is listed at the end of §2. The short version: the viewer imports `eww.api` and nothing else, and every decision about what to show lives below that line.
+**What you must avoid so the swap stays cheap** is listed at the end of §2. The short version: the viewer imports `eww.api`, `eww.review` and `eww.weather`, and every decision about what to show lives below that line.
 
 ## 1b. Monthly cost
 
@@ -201,7 +201,7 @@ At this prompt shape Sonnet 5 with caching costs the same as Haiku 4.5 without i
 - **Data branch** (`data`, an orphan branch of this repo): the raw archive and the system of record for *what was observed, when*. Every downstream table can be rebuilt from it, which is what makes iterating on the clustering logic safe.
 - **Ingest**: the only writer of `source_record` and `collector_run`; replays snapshot files it has not seen; idempotent on natural keys plus payload hash.
 - **Resolve**: the only code path that inserts into `event`; applies the identity rules in §3 and writes `merge_proposal` rows for the grey zone.
-- **Enrichment collectors** (laptop only): for each active event, query GDELT, ReliefWeb, Bluesky, YouTube and Mastodon by place, hazard, name and *time range since the last successful run*, so a week offline is a week of backfill, not a hole. They write `document` rows: URL, title, excerpt, publisher, time, thumbnail URL.
+- **Enrichment collectors** (laptop only): for each active event, query GDELT, ReliefWeb, Bluesky and Reddit by place, hazard, name and *time range since the last successful run*, so a week offline is a week of backfill, not a hole. YouTube searches from the event's start, at most once per event per UTC day, and stops at 100 searches. Mastodon reads each hazard tag once and keeps a post only when the text names the event. They write `document` rows: URL, title, excerpt, publisher, time, thumbnail URL. Posts and videos are never sent to a model.
 - **Extract**: hazard lexicon → NER → local gazetteer → GeoNames web service → Nominatim → optional model, in that order, stopping as soon as the document is classified and located. Each stage is a separate function so it can be removed or replaced alone.
 - **Embed**: local sentence-transformers; one vector per document and one running centroid per active event.
 - **Attach**: scores each new document against candidate events and writes `event_document` with a status; never creates events.
@@ -256,7 +256,7 @@ ems_activation is true when a record with source_id 'copernicus' sits on the eve
 
 **What you must not do, so the viewer swap stays cheap**
 
-- Never let the viewer run SQL or import anything from `eww` except `eww.api` (reads) and, since M2, `eww.review` (the Review tab's three write actions: accept, reject, revert; it returns plain values and holds the SQL). If the viewer needs a field, add it to the contract.
+- Never let the viewer run SQL or import anything from `eww` except `eww.api` (reads), since M2 `eww.review` (the Review tab's three write actions: accept, reject, revert; it returns plain values and holds the SQL), and since M5 `eww.weather` (the forecast for a clicked pin; it calls Open-Meteo and writes nothing). If the viewer needs a field, add it to the contract.
 - Never put filtering, severity mapping or merge-pointer resolution in the viewer. The viewer renders; it does not decide.
 - Never keep state in Streamlit session state that a future frontend would need. Session state holds UI state (selected pin, open tab), nothing else.
 - Never rely on folium popup HTML for anything the API does not already provide. The sidebar is built from `properties`, and a future frontend will do the same.
@@ -264,7 +264,7 @@ ems_activation is true when a record with source_id 'copernicus' sits on the eve
 
 ## 3. Data model
 
-SQLite DDL. Schema version 1 is everything up to the FUTURE tables; version 2 (M1) adds the `heartbeat` view at the end, applied to existing databases by `sql/migrations/0002_heartbeat_view.sql`. The only SQLite-specific constructs are `STRICT`, `fts5`, `strftime`/`printf` in the view and the two `PRAGMA` lines; everything else is plain SQL and moves to Postgres by dropping `STRICT`, mapping `TEXT` timestamps to `timestamptz`, `BLOB` to `vector(384)` and the JSON `TEXT` columns to `jsonb`. All timestamps are ISO 8601 UTC strings. All surrogate keys are ULIDs (sortable, generated in Python, no coordination). Columns and tables that exist only for the future are marked **FUTURE**; they are created now so that contributions land in existing tables rather than in a migration.
+SQLite DDL. Schema version 1 is everything up to the FUTURE tables; version 2 (M1) adds the `heartbeat` view at the end, applied to existing databases by `sql/migrations/0002_heartbeat_view.sql`. Version 5 (M5) revises that view so only gdacs, eonet and copernicus can serve a slot (`sql/migrations/0005_heartbeat_spine.sql`): YouTube writes `collector_run` rows to count its daily searches, and those rows must not mark a spine slot served. The only SQLite-specific constructs are `STRICT`, `fts5`, `strftime`/`printf` in the view and the two `PRAGMA` lines; everything else is plain SQL and moves to Postgres by dropping `STRICT`, mapping `TEXT` timestamps to `timestamptz`, `BLOB` to `vector(384)` and the JSON `TEXT` columns to `jsonb`. All timestamps are ISO 8601 UTC strings. All surrogate keys are ULIDs (sortable, generated in Python, no coordination). Columns and tables that exist only for the future are marked **FUTURE**; they are created now so that contributions land in existing tables rather than in a migration.
 
 ```sql
 PRAGMA journal_mode = WAL;
@@ -274,7 +274,7 @@ CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NU
 
 -- ============================================================ provenance
 CREATE TABLE source (
-  source_id     TEXT PRIMARY KEY,   -- 'gdacs','eonet','reliefweb','gdelt','bluesky','reddit','youtube','user'
+  source_id     TEXT PRIMARY KEY,   -- 'gdacs','eonet','copernicus','reliefweb','gdelt','bluesky','mastodon','reddit','youtube','user'
   kind          TEXT NOT NULL CHECK (kind IN ('authority','news','social','video','user')),
   display_name  TEXT NOT NULL,
   terms_url     TEXT,
@@ -540,9 +540,10 @@ CREATE TABLE event_revision (       -- field-level edit history; the pipeline ma
   UNIQUE (event_id, revision, field)
 ) STRICT;
 
--- ============================================================ heartbeat (schema version 2)
--- Every 3-hour slot from the first collector run to now, and whether an 'ok' run started inside the
--- slot's 45-minute grace window (docs/architecture.md §4, M1). Plain SQL apart from strftime/printf.
+-- ============================================================ heartbeat (schema version 2, revised in version 5)
+-- Every 3-hour slot from the first spine collector run to now, and whether an 'ok' run of gdacs, eonet
+-- or copernicus started inside the slot's 45-minute grace window (docs/architecture.md §4, M1).
+-- YouTube quota rows in collector_run are excluded. Plain SQL apart from strftime/printf.
 CREATE VIEW heartbeat AS
 WITH RECURSIVE
   bounds AS (
@@ -551,6 +552,7 @@ WITH RECURSIVE
            strftime('%Y-%m-%dT', 'now')
              || printf('%02d', (CAST(strftime('%H', 'now') AS INTEGER) / 3) * 3) || ':00:00Z' AS last_slot
     FROM collector_run
+    WHERE source_id IN ('gdacs', 'eonet', 'copernicus')
   ),
   slots(scheduled_for) AS (
     SELECT first_slot FROM bounds WHERE first_slot IS NOT NULL
@@ -561,13 +563,13 @@ WITH RECURSIVE
 SELECT s.scheduled_for,
        strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes') AS deadline,
        (SELECT COUNT(*) FROM collector_run r
-         WHERE r.status = 'ok' AND r.started_at >= s.scheduled_for
+         WHERE r.status = 'ok' AND r.source_id IN ('gdacs', 'eonet', 'copernicus') AND r.started_at >= s.scheduled_for
            AND r.started_at < strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes')) AS ok_runs,
        (SELECT COUNT(DISTINCT r.source_id) FROM collector_run r
-         WHERE r.status = 'ok' AND r.started_at >= s.scheduled_for
+         WHERE r.status = 'ok' AND r.source_id IN ('gdacs', 'eonet', 'copernicus') AND r.started_at >= s.scheduled_for
            AND r.started_at < strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes')) AS sources_ok,
        EXISTS (SELECT 1 FROM collector_run r
-         WHERE r.status = 'ok' AND r.started_at >= s.scheduled_for
+         WHERE r.status = 'ok' AND r.source_id IN ('gdacs', 'eonet', 'copernicus') AND r.started_at >= s.scheduled_for
            AND r.started_at < strftime('%Y-%m-%dT%H:%M:%SZ', s.scheduled_for, '+45 minutes')) AS served
 FROM slots s;
 ```
@@ -788,20 +790,22 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 
 ### M5 — Posts, videos and weather on click (medium)
 
-**Goal.** The sidebar carries the README's social feed and forecast at zero recurring cost.
+**Goal.** The sidebar carries the README's social feed and forecast at zero recurring cost. The project is pre-production, so this milestone spends nothing: a source whose free path needs a credit card or a billing account is skipped.
 
-**In scope.** Bluesky collector (session from the app password in `.env`; `searchPosts` per active event with `since`/`until`; store URI, web URL, handle, text up to 300 characters, `createdAt`, image URLs); YouTube collector (at most 100 searches per UTC day, rotated across active events by severity; store id, title, channel, `publishedAt`, thumbnail URL); Mastodon tag timelines; a Reddit collector behind a feature flag that stays off until approval; compliance jobs (Bluesky and Reddit existence checks setting `removed_at`; YouTube metadata refreshed or dropped at 30 days); sidebar tabs News, Posts, Videos, Weather; Open-Meteo current conditions plus a 5-day forecast at the pin, cached for 30 minutes in Streamlit and never stored.
+**In scope.** Bluesky collector (session from the app password in `.env`; `searchPosts` per active event with `since`/`until`; store URI, web URL, handle, text up to 300 characters, `createdAt`, image URLs); YouTube collector (at most 100 searches per UTC day, rotated across active events by severity; store id, title, channel, `publishedAt`, thumbnail URL) only if the key can be created without enabling billing; Mastodon tag timelines; a Reddit collector behind a feature flag that stays off until approval; compliance jobs (Bluesky and Reddit existence checks setting `removed_at`; YouTube metadata refreshed or dropped at 30 days); sidebar tabs News, Posts, Videos, Weather; Open-Meteo current conditions plus a 5-day forecast at the pin, cached for 30 minutes in Streamlit and never stored.
 
-**Out.** X, media bytes, anything beyond a thumbnail and a link.
+**Out.** X, media bytes, anything beyond a thumbnail and a link, any paid tier, quota purchase, billing account, cloud model or hosted service.
 
 **Exit criteria.**
-1. At least 30% of events active in the last 7 days have at least one attached post or video.
+1. At least 30% of events active in the last 7 days have at least one attached post or video, counted only from collectors that stayed free. A source skipped because it would cost money does not fail this bar.
 2. 50 random attached posts hand-checked, at least 40 relevant (posts are noisier than news, so 80% is the bar).
 3. Quotas: the log shows at most 100 YouTube searches per UTC day and Bluesky at or under 1 request per second; `data/` still holds no image or video files.
 4. Compliance: delete a test post of your own on Bluesky; after the next `eww sync` its `removed_at` is set and it no longer appears in the sidebar.
 5. Clicking any pin shows the current temperature and a 5-day forecast for the pin's coordinates within 3 seconds.
 
-**Risk retired.** Social value under free tiers; the forecast requirement.
+**Result.** Built 2026-09-26 at €0. `eww report social` wrote `docs/m5.md`. Mastodon stored 122 posts; extract located 112 and attach kept 78 (28 candidates). Of events active in the last 7 days, 9 of 463 (1.9%) have an attached post, short of 30%. Bluesky, YouTube and Reddit did not run: no handle, no API key, and `EWW_REDDIT_ENABLED` is off. That skip is not why the coverage bar failed — Mastodon ran, and buying a source was not used to close the gap. YouTube searches in the busiest UTC day: 0 (limit 100). Bluesky spacing: not applicable (no calls). Image and video files under `data/`: 0. Open-Meteo returned a 5-day forecast for 28.2 N, 85.3 E in 0.254 s (14.2 °C). The 50-post sample is `data/labels/social_posts.csv` and is unlabelled, so the 40-of-50 bar is not met. The deletion sweep is covered by tests; a live delete of your own Bluesky post was not run, because there is no session. Exit criteria 3 and 5 met; 1, 2 and the live half of 4 not met. Schema version 5. The sidebar is News, Posts, Videos and Weather, and the About tab credits Open-Meteo.
+
+**Risk retired.** The forecast path, at €0. Social coverage under the free collectors that could run is measured and short of the bar.
 
 ### M6 — Open it from your phone (small, optional)
 
@@ -1253,11 +1257,15 @@ DEFINITION OF DONE
 CONTEXT
 Extreme Weather Watch (EWW): private, single-user hazard-event map on my Windows 11 laptop. Python 3.12
 with uv, SQLite (WAL, STRICT), Streamlit + folium. I know Python and SQL only; no JavaScript or CSS.
-Free tiers only; official APIs only; honour rate limits and each platform's deletion rules; store links
-and metadata only, never media bytes; idempotent; UTC ISO 8601; ULIDs; identifying User-Agent; settings
-in eww/config.py; secrets only in .env; pytest. Read docs/architecture.md §1 (social ranking) and §3.
-STATE: M0–M4 done. Events have attached news with thumbnails, model-written summaries under a cap, and
-a review tab. No social posts, videos or weather yet.
+The project is pre-production: there is no audience and no revenue, so this milestone spends €0. The
+€25/month ceiling is a ceiling, not a budget to draw on. Free, keyless or free-tier calls only, and
+only where the free path does not require a credit card or a billing account. Official APIs only;
+honour rate limits and each platform's deletion rules; store links and metadata only, never media
+bytes; idempotent; UTC ISO 8601; ULIDs; identifying User-Agent; settings in eww/config.py; secrets
+only in .env; pytest. Read docs/architecture.md §1 (social ranking), §1b (cost) and §3.
+STATE: M0–M2 done; M3 built and parked (no real documents attached); M4 done at $0 with the local span
+reader, cloud model never called. No social posts, videos or weather yet. Do not add a paid source to
+fill that gap.
 
 DOCS: when the work is done, write docs/m5.md — this milestone's record, written by the command that
 measures it, in the shape of docs/m2.md — and update docs/architecture.md §4 (M5) with the measured
@@ -1273,10 +1281,13 @@ TASK
    author = handle, text_excerpt = record.text, published_at = record.createdAt, media_url = first
    embed image fullsize URL or the external link thumbnail, payload = the post JSON. Self-imposed limit
    1 request/second. The public unauthenticated endpoint returns 403, so always authenticate.
-2. YouTube collector: GET https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=<query>
+2. YouTube collector, only if a key exists and creating it did not require enabling billing: GET
+   https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=<query>
    &publishedAfter=<event start>&order=date&maxResults=25&key=<YOUTUBE_API_KEY>. Hard limit 100 searches
    per UTC day (the 2026 granular quota): rotate across active events by severity and record searches
-   performed in collector_run.items_seen for source 'youtube'. Store kind='video': external_id = videoId,
+   performed in collector_run.items_seen for source 'youtube'. Do not buy quota and do not attach a
+   billing account to the Google Cloud project; if the free quota cannot be used without one, skip
+   YouTube and log one line. Store kind='video': external_id = videoId,
    url = https://www.youtube.com/watch?v=<id>, title, author = channelTitle, published_at,
    media_url = snippet.thumbnails.medium.url. Compliance: attached videos are refreshed with
    videos.list?part=snippet&id=<up to 50 ids> (1 unit) at least every 30 days; a video no longer returned
@@ -1296,7 +1307,8 @@ TASK
    app.bsky.feed.getPosts?uris=<up to 25> and sets removed_at when a post is gone.
 6. Viewer: the sidebar for the clicked event gets tabs News / Posts / Videos / Weather. Posts show text,
    handle, time, thumbnail by URL (fallback to link); videos show thumbnail + title as a link (no embed).
-   Weather tab: GET https://api.open-meteo.com/v1/forecast?latitude=&longitude=&current=temperature_2m,
+   Weather tab: the public non-commercial endpoint only, GET
+   https://api.open-meteo.com/v1/forecast?latitude=&longitude=&current=temperature_2m,
    precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,
    precipitation_sum,weather_code&forecast_days=5&timezone=auto at the pin coordinates, cached with
    st.cache_data(ttl=1800), never stored; show current conditions and a 5-row daily table; attribution
@@ -1304,12 +1316,17 @@ TASK
    eww.weather helper that the viewer may import).
 
 CONSTRAINTS
-No X, Instagram, TikTok, Facebook or Telegram. No scraping of any web page. No media bytes on disk.
-Every provider has one rate-limited client with limits in config. Missing credentials → that collector
-logs one line and is skipped; nothing else breaks.
+Pre-production: do not spend money. No paid API, no quota purchase, no billing account, no cloud model
+(Anthropic, Jev or otherwise) and no hosted service — hosting is M6, and only on its free tier. No X,
+Instagram, TikTok, Facebook or Telegram. No scraping of any web page. No media bytes on disk. Every
+provider has one rate-limited client with limits in config. Open-Meteo is api.open-meteo.com, never
+the customer API. Missing credentials, or a path that would cost money, → that collector logs one line
+and is skipped; nothing else breaks.
 
 DEFINITION OF DONE
-1. >= 30% of events active in the last 7 days have >= 1 attached post or video.
+1. >= 30% of events active in the last 7 days have >= 1 attached post or video, counted only from
+   collectors that stayed free. A source skipped because it would cost money does not fail this bar
+   and is not a reason to pay.
 2. 50 random attached posts hand-checked: >= 40 relevant.
 3. Log shows <= 100 YouTube searches per UTC day and Bluesky <= 1 request/second; data/ holds no image
    or video files.
@@ -1376,7 +1393,7 @@ DEFINITION OF DONE
 CONTEXT
 Extreme Weather Watch (EWW): private, single-user hazard-event map on my Windows 11 laptop. The pipeline
 is Python 3.12 with uv, SQLite (WAL, STRICT); the current viewer is Streamlit + folium (app.py), which
-imports only eww.api and eww.review. I know Python and SQL; this is my first JavaScript project, so
+imports only eww.api, eww.review and eww.weather. I know Python and SQL; this is my first JavaScript project, so
 explain the toolchain as you introduce it and keep the frontend's data logic at zero. The constraint
 "no JavaScript or CSS" is lifted for one directory, web/, and nowhere else. Free tiers only; localhost
 first; no terms-of-service violations (tile providers want attribution and light use). Read
@@ -1479,3 +1496,5 @@ Only things that need your input or an external check.
 - **2026-09-21 — M3 built: headlines on pins.** Enrichment collectors for GDELT (per event, spaced, stopping on 429) and ReliefWeb (skipped without an appname); `document` rows with canonical URLs and retrieval provenance (`document_retrieval`, `enrichment_run`: schema version 3); the English/Italian hazard lexicon with negative patterns; spaCy NER; the three-tier cached geocoder with a loaded GeoNames gazetteer; local embeddings; `attach_document()` as in §3 with its numbers in `identity.yaml`; `mention` geometries; the News tab, candidate headlines in the Review tab, an About tab with credits; `eww purge`, `eww eval attachments`, the provider log and the rate-limit proofs in `eww doctor`; the `docs/m<N>.md` convention (`config.milestone_doc`). Fixed in M2's resolve on the way: the self-merge of a GLIDE-named event joined as a sibling. Sections touched: 1, 1b, 2, 3, 4, 6 (Prompt M4 STATE, DOCS lines in M4–M6), 7 (items 4, 5, 7, 11, 12).
 - **2026-09-22 — M3 parked; scope re-set; M7 added.** GDELT's DOC API answered 429 from four unrelated networks for 22 hours and third-party measurements put its real tolerance far below its documented limit: recorded in §1, §1b and §4, the collector made best-effort. A corporate Zscaler proxy broke TLS for Python: fixed with a trusted CA bundle (CLAUDE.md). Your decisions: ReliefWeb deferred (item 4, exact steps recorded); the GDELT Web NGrams table of contents plus typesafe.ai's Jev recorded as the news path for later, quadgram file excluded (items 13, 14); collection de-prioritised, proceed to M4–M7 (item 15); React frontend added as M7 with Prompt M7, the seven-milestone ceiling lifted and the no-JavaScript constraint lifted for `web/` (§1, §2, §4, §5, §6, item 16; the update-architecture-doc skill and its checker updated to match). Sections touched: 0 (dateline only), 1, 1b, 2, 4, 5, 6, 7.
 - **2026-09-25 — M4 done with a span reader, not a 7B chat.** `qwen2.5:7b-instruct` was pulled and a golden run started; each call took long enough that the run was stopped at 16 of 40 (partial score in the first `docs/m4.md`: places 53.3%, figures 47.5%, because the rest never ran). The default backend is now `local`: figures and places are read from the source text, summaries are sentences of the authority text, and Claude stays behind the $10 cap. Re-measured the same day: hazard 30/30, places 30/30, figures 40/40, span violations 0, cost $0. Schema version 4 adds `event.summary_evidence`. Hosted Jev (typesafe.ai) was not called. Sections touched: 0 (dateline), 1, 1b, 3, 4.
+- **2026-09-26 — M5 spends nothing while pre-production.** Your decision: the project has no audience and no revenue, so Prompt M5 must not draw on the €25 ceiling. A source whose free path needs a credit card or a billing account (YouTube quota, Open-Meteo's customer API, any cloud model) is skipped. Sections touched: 0 (dateline), 4, 6.
+- **2026-09-26 — M5 built and measured, coverage bar not met.** Bluesky, YouTube, Mastodon and a flagged Reddit collector; posts and videos go through `attach_document` and are excluded from the model; deletion sweeps on every sync; sidebar tabs News, Posts, Videos, Weather; `eww.weather` calls the public Open-Meteo endpoint and stores nothing; schema version 5 keeps YouTube quota rows out of the heartbeat view; `eww report social` writes `docs/m5.md`. Measured: 9 of 463 events (1.9%) with an attached post, 0 of 50 posts labelled, 0 YouTube searches, no media files, one forecast in 0.254 s. Bluesky, YouTube and Reddit were skipped for missing credentials, not purchased. Sections touched: 0 (dateline), 1, 2, 3, 4, 6 (Prompt M7 CONTEXT).

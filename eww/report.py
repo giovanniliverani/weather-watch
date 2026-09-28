@@ -10,14 +10,18 @@ is two events; the report also gives the total after removing those mirrors.
 
 from __future__ import annotations
 
+import csv
 import json
+import random
 import re
 import sqlite3
+import time
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from eww import api, config, countries
+from eww import api, config, countries, labels as labels_mod
+from eww import weather as weather_mod
 from eww.clock import now_utc, to_iso
 
 GDACS_EVENTID_RE = re.compile(r"gdacs\.org/.*?[?&]eventid=(\d+)", re.IGNORECASE)
@@ -714,4 +718,281 @@ def write_attachment_report(conn: sqlite3.Connection, evaluation: dict | None, o
     path = out or config.milestone_doc(3)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_attachment_markdown(result), encoding="utf-8")
+    return path, result
+
+
+# ============================================================================= M5: posts, videos, weather (docs/m5.md)
+_SAMPLE_COLUMNS = ("document_id", "event_id", "event_title", "source_id", "author", "text", "url", "relevant", "cause")
+
+
+def social_coverage(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
+    """Events active in the last SOCIAL_COVERAGE_DAYS with at least one attached post or video from a free collector."""
+    now = now or now_utc()
+    since = to_iso(now - timedelta(days=config.SOCIAL_COVERAGE_DAYS))
+    marks = ", ".join("?" * len(config.SOCIAL_SOURCES))
+    rows = conn.execute(
+        f"""
+        SELECT e.event_id, e.title, e.hazard_type, e.country_iso3, COALESCE(e.severity_score, 0) AS severity_score,
+               (
+                 SELECT COUNT(*) FROM event_document ed
+                 JOIN document d ON d.document_id = ed.document_id
+                 WHERE ed.event_id = e.event_id AND ed.status = 'attached' AND d.removed_at IS NULL
+                   AND d.kind IN ('post', 'video') AND d.source_id IN ({marks})
+               ) AS attached
+        FROM event e
+        WHERE e.merged_into_event_id IS NULL AND e.status IN ('active', 'ended')
+          AND COALESCE(e.ended_at, e.last_observed_at) >= ?
+        ORDER BY attached DESC, severity_score DESC, e.event_id
+        """,
+        (*config.SOCIAL_SOURCES, since),
+    ).fetchall()
+    covered = sum(1 for row in rows if row["attached"] >= 1)
+    return {
+        "events": len(rows),
+        "covered": covered,
+        "share": (covered / len(rows)) if rows else None,
+        "since": since,
+        "rows": [dict(row) for row in rows if row["attached"] >= 1],
+    }
+
+
+def youtube_searches_by_day(conn: sqlite3.Connection) -> dict[str, dict[str, int]]:
+    """Searches per UTC day: collector_run.items_seen for source youtube, and search.list lines in the provider log."""
+    days: dict[str, dict[str, int]] = {}
+    for row in conn.execute(
+        """
+        SELECT substr(started_at, 1, 10) AS day, COALESCE(SUM(items_seen), 0) AS n
+        FROM collector_run WHERE source_id = 'youtube' GROUP BY 1
+        """
+    ):
+        days.setdefault(row["day"], {"collector_run": 0, "log": 0})["collector_run"] = int(row["n"])
+    for record in ratelimit_calls():
+        url = str(record.get("url") or "")
+        if record.get("provider") != "youtube" or "/youtube/v3/search" not in url:
+            continue
+        day = str(record.get("at") or "")[:10]
+        if not day:
+            continue
+        days.setdefault(day, {"collector_run": 0, "log": 0})["log"] += 1
+    return dict(sorted(days.items()))
+
+
+def bluesky_min_spacing() -> float | None:
+    """Smallest gap between Bluesky calls in the provider log. None when fewer than two calls were logged."""
+    from eww import ratelimit
+
+    records = [record for record in ratelimit.read(kind="call") if record.get("provider") == "bluesky"]
+    return ratelimit.min_spacing_s(records)
+
+
+def media_files(root: Path | None = None) -> list[Path]:
+    """Image and video files under data/. References belong in media_url; bytes do not belong on disk."""
+    folder = root or config.DATA_DIR
+    if not folder.exists():
+        return []
+    return sorted(path for path in folder.rglob("*") if path.is_file() and path.suffix.lower() in config.MEDIA_SUFFIXES)
+
+
+def ratelimit_calls():
+    from eww import ratelimit
+
+    return ratelimit.read(kind="call")
+
+
+def _prior_sample(path: Path) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        return {row["document_id"]: row for row in csv.DictReader(handle) if row.get("document_id")}
+
+
+def social_sample(conn: sqlite3.Connection, *, size: int | None = None, seed: int = 5, path: Path | None = None) -> list[dict]:
+    """Up to `size` attached posts, drawn with a fixed seed. A hand-filled relevant/cause cell is kept."""
+    size = config.SOCIAL_SAMPLE_SIZE if size is None else size
+    rows = conn.execute(
+        """
+        SELECT d.document_id, ed.event_id, e.title AS event_title, d.source_id, d.author,
+               COALESCE(d.text_excerpt, d.title, '') AS text, d.url
+        FROM event_document ed
+        JOIN document d ON d.document_id = ed.document_id
+        JOIN event e ON e.event_id = ed.event_id
+        WHERE ed.status = 'attached' AND d.removed_at IS NULL AND d.kind = 'post'
+          AND d.source_id IN ({marks})
+        ORDER BY d.document_id
+        """.format(marks=", ".join("?" * len(config.SOCIAL_SOURCES))),
+        config.SOCIAL_SOURCES,
+    ).fetchall()
+    chosen = [dict(row) for row in rows]
+    if len(chosen) > size:
+        chosen = random.Random(seed).sample(chosen, size)
+    prior = _prior_sample(path or config.SOCIAL_SAMPLE_CSV)
+    for row in chosen:
+        earlier = prior.get(row["document_id"]) or {}
+        row["relevant"] = earlier.get("relevant") or ""
+        row["cause"] = earlier.get("cause") or ""
+        row["text"] = (row.get("text") or "").replace("\n", " ")
+    chosen.sort(key=lambda row: (row["event_title"] or "", row["document_id"]))
+    return chosen
+
+
+def write_social_sample(rows: list[dict], path: Path | None = None) -> Path:
+    path = path or config.SOCIAL_SAMPLE_CSV
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=_SAMPLE_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: ("" if row.get(key) is None else row.get(key)) for key in _SAMPLE_COLUMNS})
+    return path
+
+
+def evaluate_social_sample(rows: list[dict]) -> dict:
+    labelled = [row for row in rows if labels_mod.parse_label(row.get("relevant")) is not None]
+    relevant = [row for row in labelled if labels_mod.parse_label(row.get("relevant"))]
+    return {
+        "rows": len(rows),
+        "labelled": len(labelled),
+        "relevant": len(relevant),
+        "target_rows": config.SOCIAL_SAMPLE_SIZE,
+        "target_relevant": int(config.SOCIAL_SAMPLE_SIZE * config.SOCIAL_RELEVANCE_TARGET),
+    }
+
+
+def skipped_sources() -> list[str]:
+    """Collectors that will not run, each as the one line the run itself logs. A skip is not a reason to pay."""
+    lines = []
+    if not config.BLUESKY_HANDLE or not config.BLUESKY_APP_PASSWORD:
+        lines.append("bluesky: BLUESKY_HANDLE or BLUESKY_APP_PASSWORD is not set")
+    if not config.YOUTUBE_API_KEY:
+        lines.append("youtube: YOUTUBE_API_KEY is not set; no billing account will be attached")
+    if not config.REDDIT_ENABLED:
+        lines.append("reddit: EWW_REDDIT_ENABLED is not set")
+    return lines
+
+
+def weather_probe(latitude: float = 28.2, longitude: float = 85.3) -> dict:
+    """One live forecast, timed. The report records the number; a failure is written, not hidden."""
+    started = time.monotonic()
+    try:
+        body = weather_mod.forecast(latitude, longitude)
+    except Exception as exc:
+        return {"ok": False, "elapsed_s": round(time.monotonic() - started, 3), "error": f"{type(exc).__name__}: {exc}"[:200], "rows": 0}
+    return {
+        "ok": True,
+        "elapsed_s": round(time.monotonic() - started, 3),
+        "rows": len(body["daily"]),
+        "temperature_c": body["current"]["temperature_c"],
+        "attribution": body["attribution"],
+        "error": None,
+    }
+
+
+def social_report(conn: sqlite3.Connection, *, now: datetime | None = None, probe: dict | None = None, sample_path: Path | None = None) -> dict:
+    now = now or now_utc()
+    coverage = social_coverage(conn, now=now)
+    searches = youtube_searches_by_day(conn)
+    busiest = max((max(row["collector_run"], row["log"]) for row in searches.values()), default=0)
+    spacing = bluesky_min_spacing()
+    media = media_files()
+    sample_rows = social_sample(conn, path=sample_path)
+    sample = evaluate_social_sample(sample_rows)
+    outlook = probe if probe is not None else weather_probe()
+    relevance_passed = sample["labelled"] >= config.SOCIAL_SAMPLE_SIZE and sample["relevant"] >= sample["target_relevant"]
+    return {
+        "generated_at": to_iso(now),
+        "database": str(config.DB_PATH),
+        "coverage": coverage,
+        "coverage_passed": coverage["share"] is not None and coverage["share"] >= config.SOCIAL_COVERAGE_TARGET,
+        "youtube_days": searches,
+        "youtube_busiest": busiest,
+        "youtube_passed": busiest <= config.YOUTUBE_SEARCHES_PER_DAY,
+        "bluesky_min_spacing_s": spacing,
+        "bluesky_passed": spacing is None or spacing + 1e-9 >= config.BLUESKY_MIN_INTERVAL_S,
+        "media_files": len(media),
+        "media_passed": len(media) == 0,
+        "sample_rows": sample_rows,
+        "sample": sample,
+        "relevance_passed": relevance_passed,
+        "weather": outlook,
+        "weather_passed": bool(outlook.get("ok") and outlook.get("elapsed_s", 99) <= 3 and outlook.get("rows") == config.OPEN_METEO_FORECAST_DAYS and outlook.get("attribution") == config.OPEN_METEO_ATTRIBUTION),
+        "skipped": skipped_sources(),
+    }
+
+
+def render_social_markdown(result: dict) -> str:
+    cov = result["coverage"]
+    share = "n/a" if cov["share"] is None else f"{100 * cov['share']:.1f}%"
+    sample = result["sample"]
+    spacing = "n/a" if result["bluesky_min_spacing_s"] is None else f"{result['bluesky_min_spacing_s']:.3f} s"
+    lines = [
+        "# M5: posts, videos and weather on click",
+        "",
+        f"Generated {result['generated_at']} by `eww report social` against `{result['database']}`.",
+        "Re-run that command to refresh the numbers. A collector that was skipped because it would cost money is listed and does not fail the coverage bar.",
+        "",
+        "## Exit criteria",
+        "",
+        "| Criterion | Measured | Target | Verdict |",
+        "|---|---|---|---|",
+        f"| Events active in {config.SOCIAL_COVERAGE_DAYS} days with >= 1 attached post or video | {cov['covered']} of {cov['events']} ({share}) | >= {100 * config.SOCIAL_COVERAGE_TARGET:.0f}% | {'PASS' if result['coverage_passed'] else 'FAIL'} |",
+        f"| Hand-checked attached posts that are relevant | {sample['relevant']} of {sample['labelled']} labelled ({sample['rows']} in the sample) | >= {sample['target_relevant']} of {sample['target_rows']} | {'PASS' if result['relevance_passed'] else 'FAIL'} |",
+        f"| YouTube searches in the busiest UTC day | {result['youtube_busiest']} | <= {config.YOUTUBE_SEARCHES_PER_DAY} | {'PASS' if result['youtube_passed'] else 'FAIL'} |",
+        f"| Bluesky minimum spacing | {spacing} | >= {config.BLUESKY_MIN_INTERVAL_S:.0f} s | {'PASS' if result['bluesky_passed'] else 'FAIL'} |",
+        f"| Image or video files under data/ | {result['media_files']} | 0 | {'PASS' if result['media_passed'] else 'FAIL'} |",
+        f"| Forecast for one pin (28.2 N, 85.3 E) | {_weather_cell(result['weather'])} | <= 3 s, 5 days | {'PASS' if result['weather_passed'] else 'FAIL'} |",
+        "",
+        "Deleting a test post on Bluesky and seeing `removed_at` after the next `eww sync` is checked by the owner when Bluesky credentials are set. The sweep runs on every sync; the unit tests cover a post the server no longer returns.",
+        "",
+        "## Collectors that did not run",
+        "",
+    ]
+    if result["skipped"]:
+        for line in result["skipped"]:
+            lines.append(f"- {line}")
+    else:
+        lines.append("- none")
+    lines += [
+        "",
+        "## YouTube searches by UTC day",
+        "",
+        "| Day | collector_run items_seen | search.list lines in the log |",
+        "|---|---:|---:|",
+    ]
+    if result["youtube_days"]:
+        for day, row in result["youtube_days"].items():
+            lines.append(f"| {day} | {row['collector_run']} | {row['log']} |")
+    else:
+        lines.append("| (none) | 0 | 0 |")
+    lines += ["", "## Events with an attached post or video", ""]
+    if cov["rows"]:
+        lines += ["| Event | Hazard | Country | Severity | Attached |", "|---|---|---|---:|---:|"]
+        for row in cov["rows"][:40]:
+            lines.append(f"| {row['title']} | {row['hazard_type']} | {row['country_iso3'] or ''} | {row['severity_score']:.3f} | {row['attached']} |")
+        if len(cov["rows"]) > 40:
+            lines.append(f"| … {len(cov['rows']) - 40} more | | | | |")
+    else:
+        lines.append("None.")
+    lines += [
+        "",
+        "## Hand check",
+        "",
+        f"The sample is `{config.SOCIAL_SAMPLE_CSV}`. Fill `relevant` (yes/no) and `cause`, then run `uv run eww report social` again. Labels already in that file are kept.",
+        "",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _weather_cell(probe: dict) -> str:
+    if not probe.get("ok"):
+        return probe.get("error") or "failed"
+    return f"{probe['elapsed_s']:.3f} s, {probe['rows']} days, {probe.get('temperature_c')} °C"
+
+
+def write_social_report(conn: sqlite3.Connection, out: Path | None = None, *, now: datetime | None = None, probe: dict | None = None, sample_path: Path | None = None) -> tuple[Path, dict]:
+    result = social_report(conn, now=now, probe=probe, sample_path=sample_path)
+    sample_path = sample_path or config.SOCIAL_SAMPLE_CSV
+    write_social_sample(result["sample_rows"], sample_path)
+    path = out or config.milestone_doc(5)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_social_markdown(result), encoding="utf-8")
     return path, result
