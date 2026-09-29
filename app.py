@@ -1,8 +1,8 @@
 """Extreme Weather Watch viewer: a Streamlit page with a folium map of events_geojson(), a Review tab and an About tab.
 
-Imports eww.api (the GeoJSON contract, an event's attached documents, the attribution list), eww.review
-(the write actions behind Accept, Reject and Revert) and eww.weather (the forecast shown when a pin is
-clicked). No SQL, no HTML, no JavaScript, no CSS: every filter is a Streamlit widget whose value is
+Imports only eww.api (the GeoJSON contract, an event's attached documents, the attribution list, the
+forecast shown when a pin is clicked) and eww.review (the write actions behind Accept, Reject and
+Revert). No SQL, no HTML, no JavaScript, no CSS: every filter is a Streamlit widget whose value is
 passed to events_geojson(), and the sidebar is built from each feature's `properties` plus
 event_documents(). Run with `uv run streamlit run app.py`.
 """
@@ -16,13 +16,13 @@ import streamlit as st
 from folium import plugins
 from streamlit_folium import st_folium
 
-from eww import api, review, weather
+from eww import api, review
 
 
-@st.cache_data(ttl=weather.CACHE_TTL_S, show_spinner=False)
+@st.cache_data(ttl=api.FORECAST_CACHE_TTL_S, show_spinner=False)
 def forecast_at(latitude: float, longitude: float) -> dict:
     """Current conditions and five daily rows. Cached for half an hour; nothing is written to the database."""
-    return weather.forecast(latitude, longitude)
+    return api.forecast(latitude, longitude)
 
 
 def _measure(value, unit: str) -> str:
@@ -306,7 +306,7 @@ else:
             if current["observed_at"]:
                 st.caption(f"Observed {current['observed_at']}")
             st.table(outlook["daily"])
-        st.caption(weather.ATTRIBUTION)
+        st.caption(api.FORECAST_ATTRIBUTION)
 
 st.sidebar.header("Legend")
 for hazard in api.HAZARD_TYPES:

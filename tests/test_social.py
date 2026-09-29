@@ -410,3 +410,69 @@ def test_social_report_counts_attached_posts_and_keeps_hand_labels(conn, data_di
     _, again = report.write_social_report(conn, out, now=now, probe=probe, sample_path=sample)
     assert again["sample"]["relevant"] == 1 and again["relevance_passed"] is False
     assert "1 of 3" in out.read_text(encoding="utf-8")
+
+
+def test_mentions_keeps_the_country_when_new_mexico_is_also_named():
+    assert queries.mentions("Floods across Mexico, and New Mexico too", ["Mexico"])
+    assert not queries.mentions("New Mexico flash flood", ["Mexico"])
+
+
+def test_bluesky_token_is_sent_per_request_and_never_set_on_a_shared_client(conn, data_dir, monkeypatch):
+    events = prepared(conn, data_dir)
+    monkeypatch.setattr(config, "BLUESKY_HANDLE", "watcher.bsky.social")
+    monkeypatch.setattr(config, "BLUESKY_APP_PASSWORD", "app-password-secret")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("createSession"):
+            return httpx.Response(200, json={"accessJwt": "access-jwt-value", "refreshJwt": "refresh-jwt-value"})
+        assert request.headers["Authorization"] == "Bearer access-jwt-value"
+        return httpx.Response(200, json={"posts": []})
+
+    http = mock_client(handler)
+    collector = bluesky.BlueskyCollector(http=http, sleep=lambda seconds: None)
+    now = parse_iso(T0)
+    collector.enrich_event(conn, events["Flood in Nepal"], now - timedelta(days=1), now, now)
+    assert "Authorization" not in http.headers
+    collector.close()
+    http.close()
+
+
+def test_youtube_counts_a_search_that_failed_after_reaching_google(conn, data_dir, monkeypatch):
+    events = prepared(conn, data_dir)
+    monkeypatch.setattr(config, "YOUTUBE_API_KEY", "youtube-key-secret")
+    http = mock_client(lambda request: httpx.Response(500, json={}))
+    collector = youtube.YouTubeCollector(http=http, sleep=lambda seconds: None)
+    now = parse_iso(T0)
+    with pytest.raises(ValueError):
+        collector.enrich_event(conn, events["Flood in Nepal"], now - timedelta(days=1), now, now)
+    assert youtube.searches_today(conn, now) == 1
+    collector.close()
+    http.close()
+
+
+def test_social_sample_keeps_labelled_rows_when_new_posts_arrive(conn, data_dir, tmp_path, monkeypatch):
+    events = prepared(conn, data_dir)
+    now = parse_iso(T0)
+    event = events["Flood in Nepal"]
+    monkeypatch.setattr(config, "SOCIAL_SAMPLE_SIZE", 2)
+    first = []
+    for index in range(2):
+        stored = documents.upsert_document(conn, source_id="mastodon", kind="post", url=f"https://mastodon.social/@a/{index}", title=None, text_excerpt="Nepal flood", author="watcher", fetched_at=to_iso(now))
+        _attach(conn, event["event_id"], stored.document_id, now)
+        first.append(stored.document_id)
+    sample = tmp_path / "social_posts.csv"
+    report.write_social_sample(report.social_sample(conn, path=sample), sample)
+    sample.write_text(sample.read_text(encoding="utf-8").replace(",,", ",yes,on topic"), encoding="utf-8")
+    for index in range(2, 12):
+        stored = documents.upsert_document(conn, source_id="mastodon", kind="post", url=f"https://mastodon.social/@a/{index}", title=None, text_excerpt="Nepal flood", author="watcher", fetched_at=to_iso(now))
+        _attach(conn, event["event_id"], stored.document_id, now)
+    rows = report.social_sample(conn, path=sample)
+    assert sorted(row["document_id"] for row in rows) == sorted(first)
+    assert all(row["relevant"] == "yes" for row in rows)
+
+
+def test_viewer_imports_only_api_and_review():
+    source = (config.PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
+    imports = {line.strip() for line in source.splitlines() if line.startswith(("from eww", "import eww"))}
+    assert imports == {"from eww import api, review"}
+    assert api.FORECAST_ATTRIBUTION == config.OPEN_METEO_ATTRIBUTION

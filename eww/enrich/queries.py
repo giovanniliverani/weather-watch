@@ -195,7 +195,6 @@ def mentions(text: str | None, needles: list[str]) -> bool:
     folded = (text or "").casefold()
     if not folded:
         return False
-    words = set(re.findall(r"[\w']+", folded, flags=re.UNICODE))
     for needle in needles:
         token = needle.casefold().strip()
         if len(token) < 3:
@@ -203,7 +202,8 @@ def mentions(text: str | None, needles: list[str]) -> bool:
         if " " in token or "-" in token:
             if token in folded:
                 return True
-        elif token in words and f"new {token}" not in folded:
-            # "New Mexico" is a US state, not the country Mexico.
+        # A whole word not preceded by "new": "New Mexico" is a US state, not the country Mexico,
+        # but "floods in Mexico, and New Mexico too" still names the country.
+        elif re.search(rf"(?<!new )(?<![\w']){re.escape(token)}(?![\w'])", folded):
             return True
     return False

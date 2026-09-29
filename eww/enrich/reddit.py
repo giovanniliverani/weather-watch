@@ -94,7 +94,6 @@ class RedditCollector:
             follow_redirects=True,
             verify=config.verify_arg(),
         )
-        http.headers["User-Agent"] = user_agent()
         self.provider = http_mod.Provider(SOURCE_ID, limiters=[interval, window], http=http, timeout=config.HTTP_TIMEOUT_S, retries=1, **kwargs)
         self._own_http = own
         self._token: str | None = None
@@ -118,6 +117,7 @@ class RedditCollector:
                     "password": config.REDDIT_PASSWORD,
                 },
                 auth=httpx.BasicAuth(config.REDDIT_CLIENT_ID or "", config.REDDIT_CLIENT_SECRET or ""),
+                headers={"User-Agent": user_agent()},
             )
         except Exception:
             self.blocked = "Reddit token request failed; skipped."
@@ -127,7 +127,10 @@ class RedditCollector:
             self.blocked = "Reddit token request was refused; skipped."
             raise SkipSource(self.blocked)
         self._token = token
-        self.provider.http.headers["Authorization"] = f"Bearer {self._token}"
+
+    def _auth(self) -> dict:
+        """Sent per request, never set on the client, so the token cannot reach another provider's host."""
+        return {"Authorization": f"Bearer {self._token}", "User-Agent": user_agent()}
 
     def enrich_event(self, conn: sqlite3.Connection, event: sqlite3.Row, since: datetime, until: datetime, now: datetime) -> EventResult:
         query = queries.social_query(queries.event_terms(conn, event), "en")
@@ -137,6 +140,7 @@ class RedditCollector:
         status, body = self.provider.get_json(
             _SEARCH,
             {"q": query, "sort": "new", "t": "week", "limit": config.REDDIT_LIMIT, "type": "link"},
+            headers=self._auth(),
         )
         if status in {401, 403}:
             self.blocked = "Reddit search was refused; skipped."
@@ -174,7 +178,7 @@ class RedditCollector:
         when = to_iso(now)
         for start in range(0, len(rows), config.REDDIT_INFO_BATCH):
             batch = rows[start : start + config.REDDIT_INFO_BATCH]
-            status, body = self.provider.get_json(_INFO, {"id": ",".join(row["external_id"] for row in batch)})
+            status, body = self.provider.get_json(_INFO, {"id": ",".join(row["external_id"] for row in batch)}, headers=self._auth())
             if status != 200 or not isinstance(body, dict):
                 log.warning("reddit info status=%s; this batch was left unchanged", status)
                 continue

@@ -143,8 +143,10 @@ class YouTubeCollector:
         except ratelimit.RateLimitExceeded:
             _record_search(conn, now, fill_to_cap=True)
             raise
-        if status != 200:
-            raise ValueError(f"youtube search status {status}")
+        except Exception:
+            # A refused or failed search may still have cost quota: count it, so the cap errs on the safe side.
+            _record_search(conn, now)
+            raise
         _record_search(conn, now)
         result = EventResult(query=query, items_seen=len(body.get("items") or []))
         fetched_at = to_iso(now)

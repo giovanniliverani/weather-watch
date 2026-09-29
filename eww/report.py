@@ -822,10 +822,17 @@ def social_sample(conn: sqlite3.Connection, *, size: int | None = None, seed: in
         """.format(marks=", ".join("?" * len(config.SOCIAL_SOURCES))),
         config.SOCIAL_SOURCES,
     ).fetchall()
-    chosen = [dict(row) for row in rows]
-    if len(chosen) > size:
-        chosen = random.Random(seed).sample(chosen, size)
+    candidates = [dict(row) for row in rows]
     prior = _prior_sample(path or config.SOCIAL_SAMPLE_CSV)
+    # Rows the owner already labelled stay in the sample while they are still attached; the seeded draw
+    # only fills the remaining places, so a re-run after new posts arrive never discards a label.
+    labelled = [row for row in candidates if (prior.get(row["document_id"]) or {}).get("relevant")][:size]
+    kept = {row["document_id"] for row in labelled}
+    rest = [row for row in candidates if row["document_id"] not in kept]
+    room = size - len(labelled)
+    if len(rest) > room:
+        rest = random.Random(seed).sample(rest, room)
+    chosen = labelled + rest
     for row in chosen:
         earlier = prior.get(row["document_id"]) or {}
         row["relevant"] = earlier.get("relevant") or ""

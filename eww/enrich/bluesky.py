@@ -93,14 +93,10 @@ class BlueskyCollector:
             raise SkipSource(self.blocked)
         self._access = token
         self._refresh = refresh
-        self.provider.http.headers["Authorization"] = f"Bearer {self._access}"
 
     def _refresh_session(self) -> None:
-        self.provider.http.headers["Authorization"] = f"Bearer {self._refresh}"
         try:
-            response = self.provider.request("POST", _REFRESH)
-            body = response.json() if response.content else {}
-            status = response.status_code
+            status, body = self.provider.post_json(_REFRESH, headers={"Authorization": f"Bearer {self._refresh}"})
         except Exception:
             self.blocked = "Bluesky session refresh failed; skipped."
             raise SkipSource(self.blocked) from None
@@ -111,14 +107,17 @@ class BlueskyCollector:
         self._access = token
         if isinstance(body, dict) and body.get("refreshJwt"):
             self._refresh = body["refreshJwt"]
-        self.provider.http.headers["Authorization"] = f"Bearer {self._access}"
+
+    def _auth(self) -> dict:
+        """Sent per request, never set on the client, so the token cannot reach another provider's host."""
+        return {"Authorization": f"Bearer {self._access}"}
 
     def _get(self, url: str, params) -> tuple[int, dict]:
         self.ensure_session()
-        status, body = self.provider.get_json(url, params)
+        status, body = self.provider.get_json(url, params, headers=self._auth())
         if status == 401:
             self._refresh_session()
-            status, body = self.provider.get_json(url, params)
+            status, body = self.provider.get_json(url, params, headers=self._auth())
         if not isinstance(body, dict):
             body = {}
         return status, body

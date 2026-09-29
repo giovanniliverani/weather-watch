@@ -106,7 +106,7 @@ Two caveats and one thing it forecloses. References rot: publisher `og:image` UR
 
 **How much web technology you must learn.** Zero JavaScript. Zero CSS. About 15 lines of templated HTML if you want rich popups, and none if you use the sidebar. Three concepts: a URL with query parameters, the shape of a GeoJSON file, and that a browser on your machine talks to `localhost:8501`. Separately, about 40 lines of GitHub Actions YAML, which is not web technology but is new.
 
-**What you must avoid so the swap stays cheap** is listed at the end of §2. The short version: the viewer imports `eww.api`, `eww.review` and `eww.weather`, and every decision about what to show lives below that line.
+**What you must avoid so the swap stays cheap** is listed at the end of §2. The short version: the viewer imports `eww.api` and `eww.review`, and every decision about what to show lives below that line.
 
 ## 1b. Monthly cost
 
@@ -256,7 +256,7 @@ ems_activation is true when a record with source_id 'copernicus' sits on the eve
 
 **What you must not do, so the viewer swap stays cheap**
 
-- Never let the viewer run SQL or import anything from `eww` except `eww.api` (reads), since M2 `eww.review` (the Review tab's three write actions: accept, reject, revert; it returns plain values and holds the SQL), and since M5 `eww.weather` (the forecast for a clicked pin; it calls Open-Meteo and writes nothing). If the viewer needs a field, add it to the contract.
+- Never let the viewer run SQL or import anything from `eww` except `eww.api` (reads), since M2 `eww.review` (the Review tab's three write actions: accept, reject, revert; it returns plain values and holds the SQL). Since M5 the forecast for a clicked pin is `eww.api.forecast()`, which wraps `eww.weather` (it calls Open-Meteo and writes nothing). If the viewer needs a field, add it to the contract.
 - Never put filtering, severity mapping or merge-pointer resolution in the viewer. The viewer renders; it does not decide.
 - Never keep state in Streamlit session state that a future frontend would need. Session state holds UI state (selected pin, open tab), nothing else.
 - Never rely on folium popup HTML for anything the API does not already provide. The sidebar is built from `properties`, and a future frontend will do the same.
@@ -1313,7 +1313,7 @@ TASK
    precipitation_sum,weather_code&forecast_days=5&timezone=auto at the pin coordinates, cached with
    st.cache_data(ttl=1800), never stored; show current conditions and a 5-row daily table; attribution
    "Weather data by Open-Meteo.com (CC BY 4.0)". The viewer still imports only eww.api (add a small
-   eww.weather helper that the viewer may import).
+   eww.weather helper and expose it as eww.api.forecast()).
 
 CONSTRAINTS
 Pre-production: do not spend money. No paid API, no quota purchase, no billing account, no cloud model
@@ -1393,7 +1393,7 @@ DEFINITION OF DONE
 CONTEXT
 Extreme Weather Watch (EWW): private, single-user hazard-event map on my Windows 11 laptop. The pipeline
 is Python 3.12 with uv, SQLite (WAL, STRICT); the current viewer is Streamlit + folium (app.py), which
-imports only eww.api, eww.review and eww.weather. I know Python and SQL; this is my first JavaScript project, so
+imports only eww.api and eww.review. I know Python and SQL; this is my first JavaScript project, so
 explain the toolchain as you introduce it and keep the frontend's data logic at zero. The constraint
 "no JavaScript or CSS" is lifted for one directory, web/, and nowhere else. Free tiers only; localhost
 first; no terms-of-service violations (tile providers want attribution and light use). Read
@@ -1497,4 +1497,4 @@ Only things that need your input or an external check.
 - **2026-09-22 — M3 parked; scope re-set; M7 added.** GDELT's DOC API answered 429 from four unrelated networks for 22 hours and third-party measurements put its real tolerance far below its documented limit: recorded in §1, §1b and §4, the collector made best-effort. A corporate Zscaler proxy broke TLS for Python: fixed with a trusted CA bundle (CLAUDE.md). Your decisions: ReliefWeb deferred (item 4, exact steps recorded); the GDELT Web NGrams table of contents plus typesafe.ai's Jev recorded as the news path for later, quadgram file excluded (items 13, 14); collection de-prioritised, proceed to M4–M7 (item 15); React frontend added as M7 with Prompt M7, the seven-milestone ceiling lifted and the no-JavaScript constraint lifted for `web/` (§1, §2, §4, §5, §6, item 16; the update-architecture-doc skill and its checker updated to match). Sections touched: 0 (dateline only), 1, 1b, 2, 4, 5, 6, 7.
 - **2026-09-25 — M4 done with a span reader, not a 7B chat.** `qwen2.5:7b-instruct` was pulled and a golden run started; each call took long enough that the run was stopped at 16 of 40 (partial score in the first `docs/m4.md`: places 53.3%, figures 47.5%, because the rest never ran). The default backend is now `local`: figures and places are read from the source text, summaries are sentences of the authority text, and Claude stays behind the $10 cap. Re-measured the same day: hazard 30/30, places 30/30, figures 40/40, span violations 0, cost $0. Schema version 4 adds `event.summary_evidence`. Hosted Jev (typesafe.ai) was not called. Sections touched: 0 (dateline), 1, 1b, 3, 4.
 - **2026-09-26 — M5 spends nothing while pre-production.** Your decision: the project has no audience and no revenue, so Prompt M5 must not draw on the €25 ceiling. A source whose free path needs a credit card or a billing account (YouTube quota, Open-Meteo's customer API, any cloud model) is skipped. Sections touched: 0 (dateline), 4, 6.
-- **2026-09-26 — M5 built and measured, coverage bar not met.** Bluesky, YouTube, Mastodon and a flagged Reddit collector; posts and videos go through `attach_document` and are excluded from the model; deletion sweeps on every sync; sidebar tabs News, Posts, Videos, Weather; `eww.weather` calls the public Open-Meteo endpoint and stores nothing; schema version 5 keeps YouTube quota rows out of the heartbeat view; `eww report social` writes `docs/m5.md`. Measured: 9 of 463 events (1.9%) with an attached post, 0 of 50 posts labelled, 0 YouTube searches, no media files, one forecast in 0.254 s. Bluesky, YouTube and Reddit were skipped for missing credentials, not purchased. Sections touched: 0 (dateline), 1, 2, 3, 4, 6 (Prompt M7 CONTEXT).
+- **2026-09-26 — M5 built and measured, coverage bar not met.** Bluesky, YouTube, Mastodon and a flagged Reddit collector; posts and videos go through `attach_document` and are excluded from the model; deletion sweeps on every sync; sidebar tabs News, Posts, Videos, Weather; `eww.weather` calls the public Open-Meteo endpoint and stores nothing, and the viewer reaches it only through `eww.api.forecast()`; schema version 5 keeps YouTube quota rows out of the heartbeat view; `eww report social` writes `docs/m5.md`. Measured: 9 of 463 events (1.9%) with an attached post, 0 of 50 posts labelled, 0 YouTube searches, no media files, one forecast in 0.254 s. Bluesky, YouTube and Reddit were skipped for missing credentials, not purchased. Sections touched: 0 (dateline), 1, 2, 3, 4, 6 (Prompt M7 CONTEXT).

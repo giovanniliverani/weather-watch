@@ -1,6 +1,6 @@
 """The GeoJSON contract from docs/architecture.md §2, plus (M3) the two other reads the viewer needs:
-`event_documents()` for the sidebar and `attributions()` for the About section. The viewer imports this
-module, eww.review, and eww.weather (the forecast helper) and nothing else.
+`event_documents()` for the sidebar and `attributions()` for the About section, and (M5) `forecast()` for
+the Weather tab. The viewer imports this module and eww.review and nothing else.
 
     events_geojson(since, until=None, hazard=None, min_severity=0.0, status=None,
                    bbox=None, include_footprints=False, limit=2000) -> FeatureCollection
@@ -20,7 +20,7 @@ import sqlite3
 from datetime import datetime
 from typing import Iterable
 
-from eww import collectors, config, db, embed, events, heartbeat
+from eww import collectors, config, db, embed, events, heartbeat, weather
 from eww.clock import now_utc, parse_when, to_iso
 
 HAZARD_TYPES: list[str] = list(config.HAZARD_TYPES)
@@ -378,3 +378,13 @@ def attributions(*, conn: sqlite3.Connection | None = None) -> list[dict]:
     out.append({"id": "osm-tiles", "name": "Map tiles", "attribution": "© OpenStreetMap contributors, ODbL", "terms_url": "https://www.openstreetmap.org/copyright"})
     out.append({"id": "open-meteo", "name": "Open-Meteo", "attribution": config.OPEN_METEO_ATTRIBUTION, "terms_url": "https://open-meteo.com/en/licence"})
     return out
+
+
+# ----------------------------------------------------------------------------- M5: the Weather tab
+FORECAST_ATTRIBUTION = weather.ATTRIBUTION
+FORECAST_CACHE_TTL_S = weather.CACHE_TTL_S  # the viewer caches the dict this long; nothing is written to SQLite
+
+
+def forecast(latitude: float, longitude: float) -> dict:
+    """Current conditions and OPEN_METEO_FORECAST_DAYS daily rows for one pin, from the public Open-Meteo endpoint."""
+    return weather.forecast(latitude, longitude)
