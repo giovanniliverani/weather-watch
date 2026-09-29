@@ -111,7 +111,7 @@ def test_gdelt_collector_writes_documents_and_provenance(conn, data_dir):
 
     slept = []
     collector = gdelt.GdeltCollector(http=mock_client(handler), sleep=slept.append)
-    now = now_utc()
+    now = parse_iso(T0)  # the fixtures' collection time: GDELT_LOOKBACK_DAYS must not clamp the backfill
     event = events["Flood in Nepal"]
     since, until = enrich.window_for(conn, event, "gdelt", now, lookback_days=config.GDELT_LOOKBACK_DAYS)
     assert since == parse_iso(event["started_at"]) - timedelta(days=config.ENRICH_BACKFILL_DAYS)

@@ -5,10 +5,10 @@ import csv
 import httpx
 from typer.testing import CliRunner
 
-from eww import config, db, embed, extract, geocode
+from eww import attach, cli, config, db, embed, enrich, extract, geocode
 from eww.cli import app
 from eww.enrich import gdelt
-from tests.test_attach import BagEncoder, fake_ner
+from tests.test_attach import BagEncoder, fake_ner, pin_clock
 from tests.test_enrich import articles
 from tests.test_geocode import dump  # noqa: F401
 
@@ -17,6 +17,7 @@ def test_m3_commands_end_to_end(tmp_path, data_dir, dump, monkeypatch):
     monkeypatch.setattr(config, "PROVIDER_LOG", tmp_path / "logs" / "providers.jsonl")
     monkeypatch.setattr(config, "ATTACHMENT_SAMPLE_CSV", tmp_path / "labels" / "attachment_sample.csv")
     monkeypatch.setattr(config, "DOCS_DIR", tmp_path / "docs")
+    pin_clock(monkeypatch, attach, cli, enrich)  # ENRICH_ACTIVE_DAYS and ATTACH_RETRY_DAYS are counted back from T0
     embed.set_encoder(BagEncoder())
     extract.set_ner(fake_ner)
     try:

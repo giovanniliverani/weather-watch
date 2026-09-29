@@ -12,7 +12,7 @@ from eww.clock import now_utc, parse_iso, to_iso
 from tests.conftest import copernicus_item, gdacs_item, ingest_items
 from tests.test_geocode import dump  # noqa: F401  (the tiny GeoNames folder)
 
-T0 = "2026-09-16T15:10:00Z"
+T0 = "2026-09-16T15:10:00Z"  # the fixtures' collection time; attach's retry window (config.ATTACH_RETRY_DAYS) is counted back from it
 KNOWN_PLACES = ["Kathmandu", "Nepal", "Bologna", "Emilia-Romagna", "Italy", "Huelva", "Spain", "Paris", "France"]
 
 
@@ -31,6 +31,12 @@ class BagEncoder:
         return out
 
 
+def pin_clock(monkeypatch, *modules):
+    """Run these modules at T0, not today: fixtures dated around 2026-09-16 must stay inside their day windows whenever the suite runs."""
+    for module in modules:
+        monkeypatch.setattr(module, "now_utc", lambda: parse_iso(T0))
+
+
 def fake_ner(text, language):
     return [name for name in KNOWN_PLACES if re.search(rf"\b{re.escape(name)}\b", text or "")]
 
@@ -39,6 +45,7 @@ def fake_ner(text, language):
 def stand_ins(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PROVIDER_LOG", tmp_path / "logs" / "providers.jsonl")
     monkeypatch.setenv("PYTHONHASHSEED", "0")
+    pin_clock(monkeypatch, attach)
     embed.set_encoder(BagEncoder())
     extract.set_ner(fake_ner)
     yield
