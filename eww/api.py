@@ -410,6 +410,7 @@ def attributions(*, conn: sqlite3.Connection | None = None) -> list[dict]:
     out.append({"id": "geonames", "name": "GeoNames gazetteer and web service", "attribution": config.GEOCODER_ATTRIBUTIONS["gazetteer"], "terms_url": "https://creativecommons.org/licenses/by/4.0/"})
     out.append({"id": "nominatim", "name": "Nominatim (OpenStreetMap)", "attribution": config.GEOCODER_ATTRIBUTIONS["nominatim"], "terms_url": "https://operations.osmfoundation.org/policies/nominatim/"})
     out.append({"id": "osm-tiles", "name": "Map tiles", "attribution": "© OpenStreetMap contributors, ODbL", "terms_url": "https://www.openstreetmap.org/copyright"})
+    out.append({"id": "openfreemap", "name": "Map tiles (React map)", "attribution": "OpenFreeMap © OpenMapTiles Data from OpenStreetMap", "terms_url": "https://openfreemap.org/"})
     out.append({"id": "open-meteo", "name": "Open-Meteo", "attribution": config.OPEN_METEO_ATTRIBUTION, "terms_url": "https://open-meteo.com/en/licence"})
     return out
 

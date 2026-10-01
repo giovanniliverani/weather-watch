@@ -103,6 +103,9 @@ def test_attributions(client, conn):
     response = client.get("/attributions")
     assert response.status_code == 200
     assert response.json() == api.attributions(conn=conn)
+    # Both tile credits: Streamlit draws OpenStreetMap tiles, the React map OpenFreeMap's.
+    ids = {entry["id"] for entry in response.json()}
+    assert {"osm-tiles", "openfreemap"} <= ids
 
 
 def test_health_is_the_heartbeat_meta(client):
