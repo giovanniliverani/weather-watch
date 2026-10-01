@@ -250,10 +250,7 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     const map = mapRef.current
     if (!map || shownBasemap.current === basemap.id) return
     shownBasemap.current = basemap.id
-    styleLoaded.current = false
-    usingFallback.current = false
-    setFailedBasemap(null)
-    map.setStyle(styleFor(basemap), { diff: false })
+    loadBasemap(basemap)
   }, [basemap])
 
   // Before the first style load the events source does not exist yet; 'style.load' then uses the latest values.
@@ -283,12 +280,24 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     map.easeTo({ center: [flyTo.lon, flyTo.lat], zoom: Math.max(map.getZoom(), 7) })
   }, [flyTo])
 
+  /** Load the chosen basemap again after it failed (the tile host may be back). */
+  function loadBasemap(next: Basemap) {
+    styleLoaded.current = false
+    usingFallback.current = false
+    setFailedBasemap(null)
+    mapRef.current?.setStyle(styleFor(next), { diff: false })
+  }
+  const retryBasemap = () => loadBasemap(latest.current.basemap)
+
   return (
     <div className="map-area">
       <main ref={container} className="map" />
       {failedBasemap ? (
         <p className="map-note" role="status">
-          The {failedBasemap} map style did not load, so the events sit on a plain background.
+          The {failedBasemap} map style did not load, so the events sit on a plain background.{' '}
+          <button type="button" className="link" onClick={retryBasemap}>
+            Try again
+          </button>
         </p>
       ) : null}
     </div>

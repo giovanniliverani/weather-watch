@@ -27,11 +27,3 @@ export const DEFAULT_DAYS = 14
 export const MIN_DAYS = 1
 export const MAX_DAYS = 90
 export const WINDOW_PRESETS = [1, 3, 7, 14, 30, 90] as const
-
-/** Minimum-severity steps offered by the filter, as in app.py. Events show the API's severity_label. */
-export const SEVERITY_STEPS = [
-  { value: 0, label: 'Any', hint: 'every severity' },
-  { value: 0.33, label: 'Green', hint: 'Green and above' },
-  { value: 0.66, label: 'Orange', hint: 'Orange and above, or a Copernicus EMS activation' },
-  { value: 1, label: 'Red', hint: 'Red only' },
-] as const

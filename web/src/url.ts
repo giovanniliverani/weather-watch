@@ -1,6 +1,6 @@
 // The view lives in the URL query, so a reload or a shared link restores it:
 // ?days=14&hazard=flood&hazard=wildfire&sev=0.66&fp=1&event=<id>&map=<zoom>/<lat>/<lon>&page=about
-import { DEFAULT_DAYS, MAX_DAYS, MIN_DAYS, SEVERITY_STEPS } from './config'
+import { DEFAULT_DAYS, MAX_DAYS, MIN_DAYS } from './config'
 
 export interface Filters {
   days: number
@@ -29,7 +29,8 @@ function parseDays(raw: string | null): number {
 
 function parseSeverity(raw: string | null): number {
   const value = Number(raw)
-  return SEVERITY_STEPS.some((step) => step.value === value) ? value : 0
+  // Any score 0..1 is a valid filter (the API checks the range too); the steps offered come from /severity-steps.
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : 0
 }
 
 function parseMap(raw: string | null): MapView | null {

@@ -291,6 +291,10 @@ button {
   grid-template-columns: repeat(4, 1fr);
 }
 
+.severity-hint {
+  margin-top: 0.4rem;
+}
+
 .chip {
   position: relative;
 }

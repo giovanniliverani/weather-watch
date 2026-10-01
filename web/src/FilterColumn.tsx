@@ -1,19 +1,20 @@
 // The left column: name, data age and theme switch (the top bar on a phone), then the filters, the legend,
 // the map style and the events list.
 import { useId, useState } from 'react'
-import { AUTO_BASEMAP, BASEMAPS, SEVERITY_STEPS, WINDOW_PRESETS, type Basemap } from './config'
+import { AUTO_BASEMAP, BASEMAPS, WINDOW_PRESETS, type Basemap } from './config'
 import EventList from './EventList'
 import { formatShortWhen, formatWhen, hazardName, plural } from './format'
 import HazardSymbol from './HazardSymbol'
 import { Chevron, Moon, Sun } from './icons'
 import type { Theme } from './theme'
-import type { EventFeature, Heartbeat } from './types'
+import type { EventFeature, Heartbeat, SeverityStep } from './types'
 import type { Resource } from './useResource'
 import type { Filters } from './url'
 
 interface Props {
   filters: Filters
   hazards: Resource<string[]>
+  severitySteps: Resource<SeverityStep[]>
   meta: Heartbeat | null
   points: EventFeature[]
   /** Events per hazard_type in the current answer; hazards filtered out are absent. */
@@ -45,9 +46,12 @@ function toggleHazard(all: string[], chosen: string[], hazard: string): string[]
 }
 
 export default function FilterColumn(props: Props) {
-  const { filters, hazards, meta, points, counts, loading, error, selectedId, theme, basemapChoice, basemap } = props
+  const { filters, hazards, severitySteps, meta, points, counts, loading, error, selectedId, theme, basemapChoice, basemap } = props
   const { onChange, onSelect, onTheme, onBasemap, onRetry, onAbout } = props
   const basemapId = useId()
+  const severityHintId = useId()
+  const steps = severitySteps.state === 'ready' ? severitySteps.data : []
+  const chosenStep = steps.find((step) => step.value === filters.minSeverity)
   const [open, setOpen] = useState(false)
   const [listOpen, setListOpen] = useState(false)
   const bodyId = useId()
@@ -170,12 +174,21 @@ export default function FilterColumn(props: Props) {
 
         <fieldset className="group">
           <legend>Severity</legend>
+          {severitySteps.state === 'error' ? (
+            <p className="error">
+              The severity steps did not load: {severitySteps.error.message}{' '}
+              <button type="button" className="link" onClick={onRetry}>
+                Try again
+              </button>
+            </p>
+          ) : null}
           <div className="chips chips-2">
-            {SEVERITY_STEPS.map((step) => (
-              <label key={step.value} className="chip" title={step.hint}>
+            {steps.map((step) => (
+              <label key={step.value} className="chip">
                 <input
                   type="radio"
                   name="severity"
+                  aria-describedby={severityHintId}
                   checked={filters.minSeverity === step.value}
                   onChange={() => onChange({ ...filters, minSeverity: step.value })}
                 />
@@ -183,6 +196,9 @@ export default function FilterColumn(props: Props) {
               </label>
             ))}
           </div>
+          <p className="quiet severity-hint" id={severityHintId}>
+            {chosenStep ? chosenStep.hint : steps.length ? `The link asks for a score of ${filters.minSeverity} and up.` : null}
+          </p>
         </fieldset>
 
         <label className="check">

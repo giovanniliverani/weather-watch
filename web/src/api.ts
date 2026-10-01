@@ -1,6 +1,6 @@
 // The only module that talks to `eww serve`. Each function is one GET; errors become ApiError.
 import { API_BASE_URL } from './config'
-import type { Attribution, DocumentItem, EventCollection, Forecast, Heartbeat } from './types'
+import type { Attribution, DocumentItem, EventCollection, Forecast, Heartbeat, SeverityStep } from './types'
 import type { Filters } from './url'
 
 export class ApiError extends Error {
@@ -40,6 +40,8 @@ export const fetchEvents = (filters: Filters, signal?: AbortSignal) =>
   get<EventCollection>(`/events.geojson?${eventsQuery(filters)}`, signal)
 
 export const fetchHazards = (signal?: AbortSignal) => get<string[]>('/hazards', signal)
+
+export const fetchSeveritySteps = (signal?: AbortSignal) => get<SeverityStep[]>('/severity-steps', signal)
 
 export const fetchHealth = (signal?: AbortSignal) => get<Heartbeat>('/health', signal)
 

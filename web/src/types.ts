@@ -72,6 +72,13 @@ export interface DocumentItem {
   urls: string[]
 }
 
+/** One step of the minimum-severity filter (GET /severity-steps); `value` is a severity_score. */
+export interface SeverityStep {
+  value: number
+  label: string
+  hint: string
+}
+
 export interface Attribution {
   id: string
   name: string

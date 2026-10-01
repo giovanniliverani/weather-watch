@@ -3,18 +3,19 @@
 // (theme, basemap) are kept per browser instead (theme.ts).
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import About from './About'
-import { eventsQuery, fetchEvents, fetchHazards } from './api'
+import { eventsQuery, fetchEvents, fetchHazards, fetchSeveritySteps } from './api'
 import { AUTO_BASEMAP, BASEMAPS } from './config'
 import FilterColumn from './FilterColumn'
 import type { FlyTarget } from './MapView'
 import Panel from './Panel'
 import { BASEMAP_KEY, readPreference, readTheme, savePreference, THEME_KEY, ThemeContext, type Theme } from './theme'
-import type { EventFeature, FootprintFeature } from './types'
+import type { EventFeature, FootprintFeature, SeverityStep } from './types'
 import { readViewState, writeViewState, type Filters, type MapView as View, type ViewState } from './url'
 import { useResource } from './useResource'
 
 const MapView = lazy(() => import('./MapView'))
 const hazardCache = new Map<string, string[]>()
+const severityStepCache = new Map<string, SeverityStep[]>()
 
 /** 'auto' or a BASEMAPS id; anything else saved earlier falls back to 'auto'. */
 const readBasemapChoice = () => {
@@ -28,14 +29,25 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(readTheme)
   const [basemapChoice, setBasemapChoice] = useState<string>(readBasemapChoice)
 
-  // Mirror the view into the address bar, replacing the entry: a reload restores the view, and Back returns from
-  // the About page but does not step through filter changes.
+  // Mirror the view into the address bar, so a reload restores it. Selecting an event adds a history entry, so Back
+  // (or a phone's back gesture) closes the panel or returns to the previous event; filters and map moves replace the
+  // entry, so the history stays short. A view that came from Back itself, or from the opening link, adds nothing.
+  const shownEventId = useRef(view.eventId)
+  const fromHistory = useRef(false)
   useEffect(() => {
     const query = writeViewState(view)
-    if (query !== window.location.search) window.history.replaceState(null, '', `${window.location.pathname}${query}`)
+    const url = `${window.location.pathname}${query}`
+    const newSelection = view.eventId !== null && view.eventId !== shownEventId.current && !fromHistory.current
+    shownEventId.current = view.eventId
+    fromHistory.current = false
+    if (newSelection) window.history.pushState(null, '', url)
+    else if (query !== window.location.search) window.history.replaceState(null, '', url)
   }, [view])
   useEffect(() => {
-    const onPop = () => setView(readViewState(window.location.search))
+    const onPop = () => {
+      fromHistory.current = true
+      setView(readViewState(window.location.search))
+    }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
@@ -53,6 +65,7 @@ export default function App() {
   const [attempt, setAttempt] = useState(0)
   const retry = useCallback(() => setAttempt((n) => n + 1), [])
   const hazards = useResource(`all#${attempt}`, fetchHazards, hazardCache)
+  const severitySteps = useResource(`all#${attempt}`, fetchSeveritySteps, severityStepCache)
   const events = useResource(`${eventsQuery(view.filters)}#${attempt}`, (signal) => fetchEvents(view.filters, signal))
   const collection = events.state === 'ready' ? events.data : events.state === 'loading' ? events.previous : undefined
 
@@ -133,6 +146,7 @@ export default function App() {
         <FilterColumn
           filters={view.filters}
           hazards={hazards}
+          severitySteps={severitySteps}
           meta={collection?.meta ?? null}
           points={points}
           counts={counts}
@@ -168,7 +182,7 @@ export default function App() {
         ) : view.eventId && events.state === 'ready' ? (
           <aside className="panel panel-note">
             <p className="quiet">The event in this link is not shown with the current filters.</p>
-            <button type="button" className="link" onClick={() => select(null)}>
+            <button type="button" className="link" onClick={() => closePanel(view.eventId!)}>
               Clear the selection
             </button>
           </aside>

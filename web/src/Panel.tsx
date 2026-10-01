@@ -36,11 +36,13 @@ export default function Panel({ event, onClose }: Props) {
     if (document.activeElement?.closest('.event-list')) heading.current?.focus()
   }, [p.event_id])
 
-  // A new attempt number makes a new request key, which is how "Try again" asks the API once more.
-  const [attempt, setAttempt] = useState(0)
-  const retry = () => setAttempt((n) => n + 1)
-  const documents = useResource(`${p.event_id}#${attempt}`, (signal) => fetchDocuments(p.event_id, signal), documentCache)
-  const forecastKey = `${lat.toFixed(4)},${lon.toFixed(4)}#${attempt}`
+  // A new attempt number makes a new request key, which is how "Try again" asks the API once more. Each request has
+  // its own counter, and a new event starts both from zero, so its cached answers are used.
+  const [attempts, setAttempts] = useState({ documents: 0, forecast: 0 })
+  const retry = (which: keyof typeof attempts) => () => setAttempts((a) => ({ ...a, [which]: a[which] + 1 }))
+  useEffect(() => setAttempts({ documents: 0, forecast: 0 }), [p.event_id])
+  const documents = useResource(`${p.event_id}#${attempts.documents}`, (signal) => fetchDocuments(p.event_id, signal), documentCache)
+  const forecastKey = `${lat.toFixed(4)},${lon.toFixed(4)}#${attempts.forecast}`
   const forecast = useResource(weatherWantedFor === p.event_id || tab === 'Weather' ? forecastKey : null, (signal) => fetchForecast(lat, lon, signal), forecastCache)
 
   function onTabKey(e: KeyboardEvent, index: number) {
@@ -115,12 +117,12 @@ export default function Panel({ event, onClose }: Props) {
         <div role="tabpanel" id={`${baseId}-panel-${tab}`} aria-labelledby={`${baseId}-tab-${tab}`} tabIndex={0} className="tab-body">
           {tab === 'Details' ? <Details event={event} /> : null}
           {tab === 'News' ? (
-            <DocumentList resource={documents} kinds={['article', 'report']} empty="No articles or reports attached to this event yet." onRetry={retry} />
+            <DocumentList resource={documents} kinds={['article', 'report']} empty="No articles or reports attached to this event yet." onRetry={retry('documents')} />
           ) : null}
           {tab === 'Posts' ? (
-            <DocumentList resource={documents} kinds={['post', 'video']} empty="No posts, photos or videos attached to this event yet." onRetry={retry} />
+            <DocumentList resource={documents} kinds={['post', 'video']} empty="No posts, photos or videos attached to this event yet." onRetry={retry('documents')} />
           ) : null}
-          {tab === 'Weather' ? <Weather resource={forecast} onRetry={retry} /> : null}
+          {tab === 'Weather' ? <Weather resource={forecast} onRetry={retry('forecast')} /> : null}
         </div>
       </div>
     </aside>

@@ -33,6 +33,8 @@ The API only answers browser calls from port 5173, so keep the dev server there.
 
 The API address is `API_BASE_URL` in `src/config.ts` (override with `VITE_API_BASE_URL` in `web/.env.local`). To offer another map style, add one entry to `BASEMAPS` there: a vector style URL, or raster tiles (for example satellite) with their credit line.
 
+What leaves the laptop: map tiles and fonts from OpenFreeMap, photos or videos from their own sites when you open them, and (through `eww serve`, not the browser) the event's position to Open-Meteo when you open the Weather tab. The "find my location" button asks the browser for your position, and only after you click it and allow it in the browser's prompt; Chrome and Edge then send nearby Wi-Fi networks and your IP address to Google's or Microsoft's location service to work it out.
+
 `audit.json` holds the last design and accessibility audit; `uv run eww report frontend` reads it into `docs/m7.md`.
 
 ## Where things live
