@@ -1,0 +1,17 @@
+{
+  "generated_at": "2026-10-01T14:53:53Z",
+  "serious": 0,
+  "moderate": 0,
+  "minor": 3,
+  "checked_at_375px": true,
+  "notes": [
+    "impeccable audit after polish, in the dark and the light theme, desktop and 375 px: 0 text below WCAG AA (lowest 5.08:1, light theme)",
+    "impeccable detect: 0 findings",
+    "hazard colours: at least 6:1 (dark) and 3.2:1 (light) on the map ground; every pair at least 10 apart in CIEDE2000",
+    "keyboard: every event reachable from the events list; focus moves to the panel; Escape closes it",
+    "minor: focus is not returned to the list row after Escape closes the panel",
+    "minor: clusters are neutral grey and show no hazard (kept for M7 by decision)",
+    "minor: the MapLibre worker adds 141.6 KB gzipped to the first load (total about 490 KB, under 600)",
+    "News and Posts checked with synthetic documents only: the database copy has no attached documents"
+  ]
+}
