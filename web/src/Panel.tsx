@@ -1,5 +1,5 @@
 // The side panel for the selected event: Details, News, Posts and Weather tabs (WAI-ARIA tabs pattern).
-import { useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fetchDocuments, fetchForecast } from './api'
 import { formatDay, formatWhen, hazardName, measure } from './format'
 import HazardSymbol from './HazardSymbol'
@@ -25,7 +25,13 @@ export default function Panel({ event, onClose }: Props) {
   // The event whose forecast was asked for by hovering or focusing the Weather tab; other events wait for a click.
   const [weatherWantedFor, setWeatherWantedFor] = useState<string | null>(null)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const heading = useRef<HTMLHeadingElement>(null)
   const baseId = useId()
+
+  // An event picked from the events list moves focus here, so keyboard and screen-reader users land on it.
+  useEffect(() => {
+    if (document.activeElement?.closest('.event-list')) heading.current?.focus()
+  }, [p.event_id])
 
   const documents = useResource(p.event_id, (signal) => fetchDocuments(p.event_id, signal), documentCache)
   const forecastKey = `${lat.toFixed(4)},${lon.toFixed(4)}`
@@ -41,11 +47,13 @@ export default function Panel({ event, onClose }: Props) {
   }
 
   return (
-    <aside className="panel" aria-labelledby={`${baseId}-title`}>
+    <aside className="panel" aria-labelledby={`${baseId}-title`} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
       <header className="panel-head">
         <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} size={28} />
         <div>
-          <h2 id={`${baseId}-title`}>{p.title}</h2>
+          <h2 id={`${baseId}-title`} ref={heading} tabIndex={-1}>
+            {p.title}
+          </h2>
           <p className="quiet">
             {hazardName(p.hazard_type)} · {p.severity_label ?? 'severity not stated'}
             {p.status === 'ended' ? ' · ended' : ''}

@@ -597,14 +597,18 @@ button {
   filter: invert(1) brightness(0.95);
 }
 
-.maplibregl-ctrl-attrib.maplibregl-attrib-empty,
-.maplibregl-ctrl-attrib {
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
+/* The tile credit sits on a solid surface so it keeps AA contrast over any tile. */
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  background: var(--surface);
   color: var(--muted);
 }
 
-.maplibregl-ctrl-attrib a {
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib a {
   color: var(--muted);
+}
+
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib a:hover {
+  color: var(--text);
 }
 
 /* Phone: the column folds into a top bar with a Filters drawer; the panel becomes a bottom sheet under the map. */
@@ -639,6 +643,25 @@ button {
     align-items: center;
     gap: 0.5rem;
     font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  /* The phone's top bar shows the short forms of the data age and the stamp; the stamp's title keeps the counts. */
+  .wide-only {
+    display: none;
+  }
+
+  /* Larger touch targets on a phone. */
+  .chip span,
+  .legend-row,
+  .event-list button,
+  .tabs [role='tab'] {
+    min-height: 40px;
+  }
+
+  .chip span {
+    display: grid;
+    place-items: center;
   }
 
   .filters-toggle {

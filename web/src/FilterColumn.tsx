@@ -46,13 +46,16 @@ export default function FilterColumn(props: Props) {
         <div className="freshness" role="status">
           {meta ? (
             <>
-              <p>Data as of {formatWhen(meta.data_as_of)}</p>
+              <p>
+                <span className="wide-only">Data as of </span>
+                {formatWhen(meta.data_as_of)}
+              </p>
               {meta.pipeline_stale ? (
-                <p className="stamp" title="The pipeline reports that collection is behind.">
-                  Stale · {meta.missed_runs_7d} of {meta.expected_runs_7d} runs missed
+                <p className="stamp" title={`Collection is behind: ${meta.missed_runs_7d} of ${meta.expected_runs_7d} runs missed in 7 days.`}>
+                  Stale<span className="wide-only"> · {meta.missed_runs_7d} of {meta.expected_runs_7d} runs missed</span>
                 </p>
               ) : (
-                <p className="quiet">
+                <p className="quiet wide-only">
                   {meta.missed_runs_7d} of {meta.expected_runs_7d} runs missed in 7 days
                 </p>
               )}
@@ -72,8 +75,14 @@ export default function FilterColumn(props: Props) {
           <div className="chips">
             {WINDOW_PRESETS.map((days) => (
               <label key={days} className="chip">
-                <input type="radio" name="days" checked={filters.days === days} onChange={() => onChange({ ...filters, days })} />
-                <span>{days}d</span>
+                <input
+                  type="radio"
+                  name="days"
+                  aria-label={days === 1 ? 'Last day' : `Last ${days} days`}
+                  checked={filters.days === days}
+                  onChange={() => onChange({ ...filters, days })}
+                />
+                <span aria-hidden="true">{days}d</span>
               </label>
             ))}
           </div>

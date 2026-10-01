@@ -37,25 +37,30 @@ interface Props {
 setWorkerUrl(workerUrl)
 
 const SYMBOL_PX = 22
-const LIGHT = '#e6e8eb'
-const PANEL = '#1f242b'
+
+/** The page's colour tokens (index.css), read once so the map and the panels share them. */
+function tokens() {
+  const css = getComputedStyle(document.documentElement)
+  return { text: css.getPropertyValue('--text').trim(), raise: css.getPropertyValue('--raise').trim() }
+}
 
 const collection = <F,>(features: F[]) => ({ type: 'FeatureCollection' as const, features })
 
 function addLayers(map: MapLibreMap) {
+  const { text: light, raise: panel } = tokens()
   map.addSource('footprints', { type: 'geojson', data: collection([]) })
   map.addLayer({
     id: 'footprint-fill',
     type: 'fill',
     source: 'footprints',
     filter: ['==', ['geometry-type'], 'Polygon'],
-    paint: { 'fill-color': LIGHT, 'fill-opacity': 0.08 },
+    paint: { 'fill-color': light, 'fill-opacity': 0.08 },
   })
   map.addLayer({
     id: 'footprint-line',
     type: 'line',
     source: 'footprints',
-    paint: { 'line-color': LIGHT, 'line-opacity': 0.55, 'line-width': 1, 'line-dasharray': [3, 2] },
+    paint: { 'line-color': light, 'line-opacity': 0.55, 'line-width': 1, 'line-dasharray': [3, 2] },
   })
 
   map.addSource('events', { type: 'geojson', data: collection([]), cluster: true, clusterMaxZoom: 6, clusterRadius: 36 })
@@ -65,8 +70,8 @@ function addLayers(map: MapLibreMap) {
     source: 'events',
     filter: ['has', 'point_count'],
     paint: {
-      'circle-color': PANEL,
-      'circle-stroke-color': LIGHT,
+      'circle-color': panel,
+      'circle-stroke-color': light,
       'circle-stroke-opacity': 0.7,
       'circle-stroke-width': 1.25,
       'circle-radius': ['step', ['get', 'point_count'], 12, 10, 15, 50, 19, 200, 24],
@@ -79,14 +84,14 @@ function addLayers(map: MapLibreMap) {
     filter: ['has', 'point_count'],
     // Noto Sans Regular is the font the OpenFreeMap styles serve.
     layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-allow-overlap': true },
-    paint: { 'text-color': LIGHT },
+    paint: { 'text-color': light },
   })
   map.addLayer({
     id: 'event-selected',
     type: 'circle',
     source: 'events',
     filter: ['==', ['get', 'event_id'], ''],
-    paint: { 'circle-opacity': 0, 'circle-radius': 16, 'circle-stroke-color': LIGHT, 'circle-stroke-width': 2.5 },
+    paint: { 'circle-opacity': 0, 'circle-radius': 16, 'circle-stroke-color': light, 'circle-stroke-width': 2.5 },
   })
   map.addLayer({
     id: 'event-points',
@@ -112,7 +117,7 @@ function fitToPoints(map: MapLibreMap, points: EventFeature[]) {
 }
 
 export default function MapView({ points, footprints, selectedId, initialView, flyTo, onSelect, onMove }: Props) {
-  const container = useRef<HTMLDivElement>(null)
+  const container = useRef<HTMLElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const ready = useRef(false)
   const fitted = useRef(initialView !== null)
@@ -129,6 +134,8 @@ export default function MapView({ points, footprints, selectedId, initialView, f
       // The tile credit stays spelled out, never folded into an info button.
       attributionControl: { compact: false },
       dragRotate: false,
+      // The canvas is MapLibre's own labelled region; this is what a screen reader announces for it.
+      locale: { 'Map.Title': 'Map of events. Every event is also in the events list.' },
     })
     map.touchZoomRotate.disableRotation()
     // Controls sit top-right: the bottom-right corner is kept free for a later "add an event" control.
@@ -211,5 +218,5 @@ export default function MapView({ points, footprints, selectedId, initialView, f
     map.easeTo({ center: [flyTo.lon, flyTo.lat], zoom: Math.max(map.getZoom(), 7) })
   }, [flyTo])
 
-  return <div ref={container} className="map" role="region" aria-label="Map of events. Every event is also in the events list." />
+  return <main ref={container} className="map" />
 }
