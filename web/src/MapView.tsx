@@ -7,13 +7,14 @@ import {
   setWorkerUrl,
   type GeoJSONSource,
   type MapLayerMouseEvent,
+  type StyleSpecification,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // MapLibre looks for its worker beside its own file, which bundling moves; Vite bundles the worker and gives its address.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { useEffect, useRef } from 'react'
-import { BASEMAP_STYLE_URL } from './config'
-import { drawSymbol, iconId } from './symbols'
+import type { Basemap } from './config'
+import { drawSymbol, iconId, type Ground } from './symbols'
 import type { EventFeature, FootprintFeature } from './types'
 import type { MapView as View } from './url'
 
@@ -25,6 +26,7 @@ export interface FlyTarget {
 }
 
 interface Props {
+  basemap: Basemap
   points: EventFeature[]
   footprints: FootprintFeature[]
   selectedId: string | null
@@ -37,30 +39,45 @@ interface Props {
 setWorkerUrl(workerUrl)
 
 const SYMBOL_PX = 22
+/** Fonts for the cluster counts; OpenFreeMap serves Noto Sans Regular, also to raster-only styles. */
+const GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf'
+/** Cluster discs, counts, the selection ring and footprints, per basemap ground. */
+const CHROME: Record<Ground, { ink: string; disc: string }> = {
+  dark: { ink: '#e8e8e8', disc: '#212121' },
+  light: { ink: '#1b1b1b', disc: '#ffffff' },
+}
 
-/** The page's colour tokens (index.css), read once so the map and the panels share them. */
-function tokens() {
-  const css = getComputedStyle(document.documentElement)
-  return { text: css.getPropertyValue('--text').trim(), raise: css.getPropertyValue('--raise').trim() }
+/** A basemap as something MapLibre can load: a style URL, or a one-layer style around raster tiles. */
+function styleFor(basemap: Basemap): string | StyleSpecification {
+  if (basemap.kind === 'style') return basemap.url
+  return {
+    version: 8,
+    glyphs: GLYPHS,
+    sources: {
+      basemap: { type: 'raster', tiles: basemap.tiles, tileSize: basemap.tileSize, maxzoom: basemap.maxzoom, attribution: basemap.attribution },
+    },
+    layers: [{ id: 'basemap', type: 'raster', source: 'basemap' }],
+  }
 }
 
 const collection = <F,>(features: F[]) => ({ type: 'FeatureCollection' as const, features })
 
-function addLayers(map: MapLibreMap) {
-  const { text: light, raise: panel } = tokens()
+/** Add the event layers on top of whatever basemap style is loaded; runs again after every style switch. */
+function addLayers(map: MapLibreMap, ground: Ground) {
+  const { ink, disc } = CHROME[ground]
   map.addSource('footprints', { type: 'geojson', data: collection([]) })
   map.addLayer({
     id: 'footprint-fill',
     type: 'fill',
     source: 'footprints',
     filter: ['==', ['geometry-type'], 'Polygon'],
-    paint: { 'fill-color': light, 'fill-opacity': 0.08 },
+    paint: { 'fill-color': ink, 'fill-opacity': 0.08 },
   })
   map.addLayer({
     id: 'footprint-line',
     type: 'line',
     source: 'footprints',
-    paint: { 'line-color': light, 'line-opacity': 0.55, 'line-width': 1, 'line-dasharray': [3, 2] },
+    paint: { 'line-color': ink, 'line-opacity': 0.55, 'line-width': 1, 'line-dasharray': [3, 2] },
   })
 
   map.addSource('events', { type: 'geojson', data: collection([]), cluster: true, clusterMaxZoom: 6, clusterRadius: 36 })
@@ -70,8 +87,8 @@ function addLayers(map: MapLibreMap) {
     source: 'events',
     filter: ['has', 'point_count'],
     paint: {
-      'circle-color': panel,
-      'circle-stroke-color': light,
+      'circle-color': disc,
+      'circle-stroke-color': ink,
       'circle-stroke-opacity': 0.7,
       'circle-stroke-width': 1.25,
       'circle-radius': ['step', ['get', 'point_count'], 12, 10, 15, 50, 19, 200, 24],
@@ -82,16 +99,15 @@ function addLayers(map: MapLibreMap) {
     type: 'symbol',
     source: 'events',
     filter: ['has', 'point_count'],
-    // Noto Sans Regular is the font the OpenFreeMap styles serve.
     layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-allow-overlap': true },
-    paint: { 'text-color': light },
+    paint: { 'text-color': ink },
   })
   map.addLayer({
     id: 'event-selected',
     type: 'circle',
     source: 'events',
     filter: ['==', ['get', 'event_id'], ''],
-    paint: { 'circle-opacity': 0, 'circle-radius': 16, 'circle-stroke-color': light, 'circle-stroke-width': 2.5 },
+    paint: { 'circle-opacity': 0, 'circle-radius': 16, 'circle-stroke-color': ink, 'circle-stroke-width': 2.5 },
   })
   map.addLayer({
     id: 'event-points',
@@ -100,7 +116,7 @@ function addLayers(map: MapLibreMap) {
     filter: ['!', ['has', 'point_count']],
     layout: {
       // Images are drawn on demand (styleimagemissing below), so any hazard_type the API sends gets a symbol.
-      'icon-image': ['concat', 'hz-', ['get', 'hazard_type'], '-', ['case', ['==', ['get', 'status'], 'ended'], 'ended', 'active']],
+      'icon-image': ['concat', `hz-${ground}-`, ['get', 'hazard_type'], '-', ['case', ['==', ['get', 'status'], 'ended'], 'ended', 'active']],
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
       // Active events above ended ones, more severe above less severe.
@@ -116,19 +132,19 @@ function fitToPoints(map: MapLibreMap, points: EventFeature[]) {
   map.fitBounds(bounds, { padding: 48, maxZoom: 6, duration: 0 })
 }
 
-export default function MapView({ points, footprints, selectedId, initialView, flyTo, onSelect, onMove }: Props) {
+export default function MapView({ basemap, points, footprints, selectedId, initialView, flyTo, onSelect, onMove }: Props) {
   const container = useRef<HTMLElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
-  const ready = useRef(false)
   const fitted = useRef(initialView !== null)
-  const latest = useRef({ points, footprints, selectedId, onSelect, onMove })
-  latest.current = { points, footprints, selectedId, onSelect, onMove }
+  const shownBasemap = useRef(basemap.id)
+  const latest = useRef({ basemap, points, footprints, selectedId, onSelect, onMove })
+  latest.current = { basemap, points, footprints, selectedId, onSelect, onMove }
 
-  // Create the map once; data, selection and moves flow in through the effects below.
+  // Create the map once; the basemap, data, selection and moves flow in through the effects below.
   useEffect(() => {
     const map = new MapLibreMap({
       container: container.current!,
-      style: BASEMAP_STYLE_URL,
+      style: styleFor(latest.current.basemap),
       center: initialView ? [initialView.lon, initialView.lat] : [0, 20],
       zoom: initialView?.zoom ?? 1.5,
       // The tile credit stays spelled out, never folded into an info button.
@@ -144,16 +160,17 @@ export default function MapView({ points, footprints, selectedId, initialView, f
     mapRef.current = map
 
     map.on('styleimagemissing', (e) => {
-      const match = /^hz-(.+)-(active|ended)$/.exec(e.id)
+      const match = /^hz-(dark|light)-(.+)-(active|ended)$/.exec(e.id)
       if (!match || map.hasImage(e.id)) return
+      const [, ground, hazard, state] = match as unknown as [string, Ground, string, string]
       const ratio = window.devicePixelRatio || 1
-      map.addImage(iconId(match[1], match[2] === 'ended'), drawSymbol(match[1], match[2] === 'ended', SYMBOL_PX, ratio), { pixelRatio: ratio })
+      map.addImage(iconId(hazard, state === 'ended', ground), drawSymbol(hazard, state === 'ended', ground, SYMBOL_PX, ratio), { pixelRatio: ratio })
     })
 
-    map.on('load', () => {
-      addLayers(map)
-      ready.current = true
-      const { points: p, footprints: f, selectedId: s } = latest.current
+    // Every style load (the first, and each basemap switch) wipes added layers, so they are put back here.
+    map.on('style.load', () => {
+      const { basemap: b, points: p, footprints: f, selectedId: s } = latest.current
+      addLayers(map, b.ground)
       ;(map.getSource('events') as GeoJSONSource).setData(collection(p))
       ;(map.getSource('footprints') as GeoJSONSource).setData(collection(f))
       map.setFilter('event-selected', ['==', ['get', 'event_id'], s ?? ''])
@@ -183,7 +200,6 @@ export default function MapView({ points, footprints, selectedId, initialView, f
     })
 
     return () => {
-      ready.current = false
       map.remove()
       mapRef.current = null
     }
@@ -192,8 +208,17 @@ export default function MapView({ points, footprints, selectedId, initialView, f
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !ready.current) return
-    ;(map.getSource('events') as GeoJSONSource).setData(collection(points))
+    if (!map || shownBasemap.current === basemap.id) return
+    shownBasemap.current = basemap.id
+    map.setStyle(styleFor(basemap), { diff: false })
+  }, [basemap])
+
+  // Before the first style load the events source does not exist yet; 'style.load' then uses the latest values.
+  useEffect(() => {
+    const map = mapRef.current
+    const source = map?.getSource('events') as GeoJSONSource | undefined
+    if (!map || !source) return
+    source.setData(collection(points))
     if (!fitted.current && points.length) {
       fitToPoints(map, points)
       fitted.current = true
@@ -201,15 +226,12 @@ export default function MapView({ points, footprints, selectedId, initialView, f
   }, [points])
 
   useEffect(() => {
-    const map = mapRef.current
-    if (!map || !ready.current) return
-    ;(map.getSource('footprints') as GeoJSONSource).setData(collection(footprints))
+    ;(mapRef.current?.getSource('footprints') as GeoJSONSource | undefined)?.setData(collection(footprints))
   }, [footprints])
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !ready.current) return
-    map.setFilter('event-selected', ['==', ['get', 'event_id'], selectedId ?? ''])
+    if (map?.getLayer('event-selected')) map.setFilter('event-selected', ['==', ['get', 'event_id'], selectedId ?? ''])
   }, [selectedId])
 
   useEffect(() => {

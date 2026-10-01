@@ -1,10 +1,12 @@
-// The left column: name and data age (the top bar on a phone), then the filters, the legend and the events list.
+// The left column: name, data age and theme switch (the top bar on a phone), then the filters, the legend,
+// the map style and the events list.
 import { useId, useState } from 'react'
-import { SEVERITY_STEPS, WINDOW_PRESETS } from './config'
+import { AUTO_BASEMAP, BASEMAPS, SEVERITY_STEPS, WINDOW_PRESETS, type Basemap } from './config'
 import EventList from './EventList'
 import { formatShortWhen, formatWhen, hazardName, plural } from './format'
 import HazardSymbol from './HazardSymbol'
-import { Chevron } from './icons'
+import { Chevron, Moon, Sun } from './icons'
+import type { Theme } from './theme'
 import type { EventFeature, Heartbeat } from './types'
 import type { Resource } from './useResource'
 import type { Filters } from './url'
@@ -19,8 +21,15 @@ interface Props {
   loading: boolean
   error: Error | null
   selectedId: string | null
+  theme: Theme
+  /** 'auto' or a BASEMAPS id. */
+  basemapChoice: string
+  /** The basemap on screen ('auto' resolved). */
+  basemap: Basemap
   onChange: (next: Filters) => void
   onSelect: (eventId: string) => void
+  onTheme: (theme: Theme) => void
+  onBasemap: (choice: string) => void
   onAbout: () => void
 }
 
@@ -33,7 +42,9 @@ function toggleHazard(all: string[], chosen: string[], hazard: string): string[]
 }
 
 export default function FilterColumn(props: Props) {
-  const { filters, hazards, meta, points, counts, loading, error, selectedId, onChange, onSelect, onAbout } = props
+  const { filters, hazards, meta, points, counts, loading, error, selectedId, theme, basemapChoice, basemap } = props
+  const { onChange, onSelect, onTheme, onBasemap, onAbout } = props
+  const basemapId = useId()
   const [open, setOpen] = useState(false)
   const [listOpen, setListOpen] = useState(false)
   const bodyId = useId()
@@ -65,9 +76,21 @@ export default function FilterColumn(props: Props) {
             <p className="quiet">{loading ? 'Loading events…' : 'No data yet'}</p>
           )}
         </div>
-        <button type="button" className="filters-toggle" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>
-          Filters
-        </button>
+        <div className="head-actions">
+          <button
+            type="button"
+            className="icon-button theme-toggle"
+            aria-pressed={theme === 'light'}
+            aria-label="Light theme"
+            title={theme === 'light' ? 'Switch to the dark theme' : 'Switch to the light theme'}
+            onClick={() => onTheme(theme === 'light' ? 'dark' : 'light')}
+          >
+            {theme === 'light' ? <Moon /> : <Sun />}
+          </button>
+          <button type="button" className="filters-toggle" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>
+            Filters
+          </button>
+        </div>
       </header>
 
       <div className="column-body" id={bodyId} data-open={open}>
@@ -148,6 +171,24 @@ export default function FilterColumn(props: Props) {
           <input type="checkbox" checked={filters.footprints} onChange={(e) => onChange({ ...filters, footprints: e.target.checked })} />
           Footprints <span className="quiet">(flood and fire areas)</span>
         </label>
+
+        <div className="group">
+          <label className="group-label" htmlFor={basemapId}>
+            Map style
+          </label>
+          <div className="select-wrap">
+            <select id={basemapId} className="select" value={basemapChoice} onChange={(e) => onBasemap(e.target.value)}>
+              <option value="auto">Auto ({BASEMAPS.find((b) => b.id === AUTO_BASEMAP[theme])?.name}, follows the theme)</option>
+              {BASEMAPS.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+            <Chevron />
+          </div>
+          <p className="quiet credit-line">{basemap.attribution}</p>
+        </div>
 
         {error ? (
           <p className="error" role="alert">

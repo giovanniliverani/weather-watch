@@ -1,9 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Extreme Weather Watch</title>
+    <script>
+      // Apply the saved theme before the first paint (key 'eww.theme', as in src/theme.ts), so a light page never flashes dark.
+      try {
+        if (localStorage.getItem('eww.theme') === 'light') document.documentElement.dataset.theme = 'light'
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
