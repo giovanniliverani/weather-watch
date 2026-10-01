@@ -165,3 +165,45 @@ def _group(terms: list[str]) -> str:
     """GDELT allows parentheses only around OR'd statements: a single term goes bare."""
     quoted = [_quote(t) for t in terms]
     return quoted[0] if len(quoted) == 1 else "(" + " OR ".join(quoted) + ")"
+
+
+def social_query(terms: EventTerms, language: str) -> str | None:
+    """The most specific place plus one hazard word in `language` ('en' or 'it'). None when the event names no place."""
+    places = [place for place in terms.place_terms if place and len(place) >= 3]
+    if not places:
+        return None
+    words = config.SOCIAL_KEYWORDS.get(terms.hazard_type) or {}
+    hazard = words.get(language) or words.get("en")
+    if not hazard:
+        return None
+    return f"{places[0]} {hazard}"
+
+
+def match_terms(terms: EventTerms) -> list[str]:
+    """Names a tag-timeline post must contain: the storm or admin1 when the event has one, otherwise the country."""
+    specific: list[str] = []
+    if terms.storm_name:
+        specific.append(terms.storm_name)
+    specific.extend(terms.admin1)
+    if specific:
+        return [name for name in specific if len(name) >= 3]
+    return [name for name in terms.place_terms if name and len(name) >= 3]
+
+
+def mentions(text: str | None, needles: list[str]) -> bool:
+    """True when `text` contains one of `needles` as a word (or as a phrase, when the needle has a space)."""
+    folded = (text or "").casefold()
+    if not folded:
+        return False
+    for needle in needles:
+        token = needle.casefold().strip()
+        if len(token) < 3:
+            continue
+        if " " in token or "-" in token:
+            if token in folded:
+                return True
+        # A whole word not preceded by "new": "New Mexico" is a US state, not the country Mexico,
+        # but "floods in Mexico, and New Mexico too" still names the country.
+        elif re.search(rf"(?<!new )(?<![\w']){re.escape(token)}(?![\w'])", folded):
+            return True
+    return False

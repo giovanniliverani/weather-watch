@@ -387,7 +387,8 @@ REVIEW_RECENT_MERGES = 50  # rows in the Review tab's merge list
 # One document per milestone, named after the milestone and nothing else: docs/m0.md, docs/m1.md, ...
 # Each is written (and rewritten) by the command that measures that milestone, so the numbers in it are
 # always measured rather than remembered: `eww report density` -> m0, `eww report volume` -> m1,
-# `eww report identity` -> m2, `eww eval attachments` -> m3, `eww eval extraction` -> m4. A new report writer inherits the rule by
+# `eww report identity` -> m2, `eww eval attachments` -> m3, `eww eval extraction` -> m4,
+# `eww report social` -> m5. A new report writer inherits the rule by
 # calling milestone_doc() instead of naming a file.
 
 
@@ -434,6 +435,31 @@ SOURCES = {
         "terms_url": "https://reliefweb.int/terms-conditions",
         "attribution": "Reports from ReliefWeb, a service of UN OCHA; personal, non-commercial use",
     },
+    # social and video enrichment (M5): links and metadata only, never media bytes
+    "bluesky": {
+        "kind": "social",
+        "display_name": "Bluesky",
+        "terms_url": "https://docs.bsky.app/docs/support/developer-guidelines",
+        "attribution": "Posts from Bluesky (links and metadata only)",
+    },
+    "mastodon": {
+        "kind": "social",
+        "display_name": "Mastodon (mastodon.social)",
+        "terms_url": "https://docs.joinmastodon.org/api/",
+        "attribution": "Posts from the public tag timelines on mastodon.social",
+    },
+    "reddit": {
+        "kind": "social",
+        "display_name": "Reddit",
+        "terms_url": "https://www.reddit.com/policies/developer-terms",
+        "attribution": "Posts from Reddit (links and metadata only; hidden when removed)",
+    },
+    "youtube": {
+        "kind": "video",
+        "display_name": "YouTube Data API",
+        "terms_url": "https://developers.google.com/youtube/terms/api-services-terms-of-service",
+        "attribution": "Video links and thumbnails from YouTube (no embed, no stored bytes)",
+    },
 }
 
 # --------------------------------------------------------------------------- M0 density bar (docs/architecture.md §4)
@@ -450,10 +476,10 @@ DENSITY_BAR = {
 # prove the rate limits held. Outside data/ on purpose: data/ holds the SQLite file and model caches.
 LOG_DIR = Path(os.getenv("EWW_LOG_DIR", str(PROJECT_ROOT / "logs")))
 PROVIDER_LOG = LOG_DIR / "providers.jsonl"
-SECRET_PARAMS = {"username", "appname", "key", "api_key", "token"}  # never written to the log in clear
+SECRET_PARAMS = {"username", "appname", "key", "api_key", "token", "password", "access_token", "client_secret"}  # never written to the log in clear
 
 # --------------------------------------------------------------------------- enrichment collectors (M3, laptop only)
-ENRICH_SOURCES = ["gdelt", "reliefweb"]  # what `eww sync` and `eww enrich` run, in this order
+ENRICH_SOURCES = ["gdelt", "reliefweb", "bluesky", "mastodon", "youtube", "reddit"]  # what `eww sync` and `eww enrich` run, in this order
 ENRICH_ACTIVE_DAYS = 14  # events observed (or ended) in the last N days are queried, by severity
 ENRICH_MAX_EVENTS_PER_RUN = 40  # per provider per run, unless the provider module sets MAX_EVENTS_PER_RUN
 ENRICH_BACKFILL_DAYS = 2  # the first query for an event starts this many days before its start
@@ -573,6 +599,100 @@ COVERAGE_MIN_DOCUMENTS = 3  # ... at least this many attached documents ...
 COVERAGE_TARGET = 0.50  # ... on at least this share of severe events active in the last ENRICH_ACTIVE_DAYS days
 CACHE_HIT_RATE_TARGET = 0.70  # M3 exit criterion 4
 DOCTOR_LOG_DAYS = 7  # `eww doctor` reads the provider log this far back by default
+
+# --------------------------------------------------------------------------- social and weather (M5)
+# Free path only. A missing credential, or a response that says a billing account is required, skips
+# that collector with one log line. No quota is purchased and no billing account is attached.
+def _secret(name: str) -> str | None:
+    value = os.getenv(name, "").strip()
+    return value or None
+
+
+def _flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+BLUESKY_HANDLE = _secret("BLUESKY_HANDLE")
+BLUESKY_APP_PASSWORD = _secret("BLUESKY_APP_PASSWORD")
+BLUESKY_PDS = "https://bsky.social"
+BLUESKY_MIN_INTERVAL_S = 1.0  # self-imposed; the PDS allows far more
+BLUESKY_SEARCH_LIMIT = 100
+BLUESKY_LANGS = ("en", "it")
+BLUESKY_EXCERPT_CHARS = 300  # a Bluesky post is at most 300 characters; the column allows 2,000
+BLUESKY_GET_POSTS_BATCH = 25  # app.bsky.feed.getPosts accepts up to 25 uris
+
+YOUTUBE_API_KEY = _secret("YOUTUBE_API_KEY")
+YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
+YOUTUBE_VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
+YOUTUBE_SEARCHES_PER_DAY = 100  # the 2026 search.list bucket, counted per UTC day
+YOUTUBE_MAX_RESULTS = 25
+YOUTUBE_REFRESH_DAYS = 30  # attached videos are refreshed or marked removed at least this often
+YOUTUBE_VIDEOS_BATCH = 50  # videos.list accepts up to 50 ids and costs 1 unit
+YOUTUBE_MIN_INTERVAL_S = 1.0
+
+MASTODON_BASE = "https://mastodon.social"
+MASTODON_LIMIT = 40
+MASTODON_MAX_CALLS = 300  # per MASTODON_WINDOW_S, the instance's own limit
+MASTODON_WINDOW_S = 300
+MASTODON_MIN_INTERVAL_S = 1.0
+# One tag timeline per hazard, English and Italian where the tag is a single word (Mastodon tags have no spaces).
+MASTODON_TAGS = {
+    "flood": ["flood", "alluvione"],
+    "tropical_cyclone": ["hurricane", "typhoon", "cyclone"],
+    "severe_storm": ["storm", "temporale"],
+    "wildfire": ["wildfire", "incendio"],
+    "heatwave": ["heatwave"],
+    "coldwave": ["coldwave"],
+    "drought": ["drought", "siccita"],
+    "landslide": ["landslide", "frana"],
+    "volcano": ["volcano", "vulcano"],
+    "earthquake": ["earthquake", "terremoto"],
+    "tsunami": ["tsunami"],
+    "other": [],
+}
+
+REDDIT_ENABLED = _flag("EWW_REDDIT_ENABLED")  # stays off until the approval request succeeds
+REDDIT_CLIENT_ID = _secret("REDDIT_CLIENT_ID")
+REDDIT_CLIENT_SECRET = _secret("REDDIT_CLIENT_SECRET")
+REDDIT_USERNAME = _secret("REDDIT_USERNAME")
+REDDIT_PASSWORD = _secret("REDDIT_PASSWORD")
+REDDIT_PER_MINUTE = 60  # self-imposed; the OAuth client limit is 100 queries per minute
+REDDIT_LIMIT = 50
+REDDIT_INFO_BATCH = 100  # /api/info accepts up to 100 fullnames
+REDDIT_MIN_INTERVAL_S = 1.0
+
+# Place plus one hazard word. Bluesky is queried once per language; YouTube and Reddit use English.
+SOCIAL_KEYWORDS = {
+    "flood": {"en": "flood", "it": "alluvione"},
+    "tropical_cyclone": {"en": "hurricane", "it": "uragano"},
+    "severe_storm": {"en": "storm", "it": "temporale"},
+    "wildfire": {"en": "wildfire", "it": "incendio"},
+    "heatwave": {"en": "heatwave", "it": "caldo"},
+    "coldwave": {"en": "cold", "it": "gelo"},
+    "drought": {"en": "drought", "it": "siccita"},
+    "landslide": {"en": "landslide", "it": "frana"},
+    "volcano": {"en": "volcano", "it": "vulcano"},
+    "earthquake": {"en": "earthquake", "it": "terremoto"},
+    "tsunami": {"en": "tsunami", "it": "tsunami"},
+    "other": {"en": "disaster", "it": "disastro"},
+}
+
+# The public non-commercial endpoint. Never the customer API, and never stored.
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+OPEN_METEO_ATTRIBUTION = "Weather data by Open-Meteo.com (CC BY 4.0)"
+OPEN_METEO_TIMEOUT_S = 2.5  # the sidebar must show a forecast within 3 seconds
+OPEN_METEO_FORECAST_DAYS = 5
+OPEN_METEO_MIN_INTERVAL_S = 1.0
+OPEN_METEO_PER_MINUTE = 30
+OPEN_METEO_CACHE_TTL_S = 1800  # st.cache_data in the viewer; the value is not written to SQLite
+
+SOCIAL_COVERAGE_DAYS = 7  # M5 exit criterion 1
+SOCIAL_COVERAGE_TARGET = 0.30
+SOCIAL_SAMPLE_SIZE = 50  # M5 exit criterion 2
+SOCIAL_RELEVANCE_TARGET = 0.80  # at least 40 of 50
+SOCIAL_SAMPLE_CSV = LABELS_DIR / "social_posts.csv"
+SOCIAL_SOURCES = ("bluesky", "mastodon", "youtube", "reddit")
+MEDIA_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"})
 
 # --------------------------------------------------------------------------- models (M4)
 # Local is the default. The cloud backend is Claude Sonnet 5 through the Message Batches API, and it is

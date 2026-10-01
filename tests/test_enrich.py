@@ -111,7 +111,7 @@ def test_gdelt_collector_writes_documents_and_provenance(conn, data_dir):
 
     slept = []
     collector = gdelt.GdeltCollector(http=mock_client(handler), sleep=slept.append)
-    now = now_utc()
+    now = parse_iso(T0)  # the fixtures' collection time: GDELT_LOOKBACK_DAYS must not clamp the backfill
     event = events["Flood in Nepal"]
     since, until = enrich.window_for(conn, event, "gdelt", now, lookback_days=config.GDELT_LOOKBACK_DAYS)
     assert since == parse_iso(event["started_at"]) - timedelta(days=config.ENRICH_BACKFILL_DAYS)
@@ -160,7 +160,7 @@ def test_enrich_run_records_windows_and_stops_on_a_rate_limit(conn, data_dir, mo
         return httpx.Response(200, json=articles(2, prefix=f"https://site{count['n']}.example.com/a"))
 
     monkeypatch.setattr(gdelt, "collector", lambda http=None, sleep=None: gdelt.GdeltCollector(http=mock_client(handler), sleep=lambda s: None))
-    now = now_utc()
+    now = parse_iso("2026-09-20T12:00:00Z")  # inside the fixture's 14-day window; wall-clock now would age the Sep 10 flood out
     stats = enrich.run(conn, ["gdelt", "reliefweb"], now=now)
     g = stats["gdelt"]
     assert g.events_considered == 3 and g.events_queried == 1 and g.stopped and "429" in g.stopped

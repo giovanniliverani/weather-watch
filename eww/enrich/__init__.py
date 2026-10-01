@@ -11,8 +11,9 @@ start minus config.ENRICH_BACKFILL_DAYS the first time. Each provider module exp
     collector(http=None) -> object with .enrich_event(conn, event, since, until, now) -> EventResult
                                                             and .close()
 
-A RateLimitExceeded from a provider ends that provider's run (the next `eww sync` continues where the
-enrichment_run rows say); any other error skips the event and logs it.
+A RateLimitExceeded, or a SkipSource (missing credential, refused session, billing required), ends that
+provider's run. Any other error skips the event and logs it. A collector with sweep() is called once
+after its events, so a deleted post is hidden on the next sync.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from datetime import datetime, timedelta
 
 from eww import config, ratelimit
 from eww.clock import now_utc, parse_iso, to_iso
+from eww.enrich.errors import SkipSource
 
 log = logging.getLogger(__name__)
 
@@ -104,9 +106,16 @@ def record_run(conn: sqlite3.Connection, event_id: str, source_id: str, until: d
 
 
 def modules() -> dict:
-    from eww.enrich import gdelt, reliefweb
+    from eww.enrich import bluesky, gdelt, mastodon, reddit, reliefweb, youtube
 
-    return {gdelt.SOURCE_ID: gdelt, reliefweb.SOURCE_ID: reliefweb}
+    return {
+        gdelt.SOURCE_ID: gdelt,
+        reliefweb.SOURCE_ID: reliefweb,
+        bluesky.SOURCE_ID: bluesky,
+        mastodon.SOURCE_ID: mastodon,
+        youtube.SOURCE_ID: youtube,
+        reddit.SOURCE_ID: reddit,
+    }
 
 
 def run(
@@ -133,6 +142,9 @@ def run(
             continue
         cap = max_events if max_events is not None else getattr(module, "MAX_EVENTS_PER_RUN", config.ENRICH_MAX_EVENTS_PER_RUN)
         events = active_events(conn, days=days, now=now, limit=cap)
+        order = getattr(module, "order_events", None)
+        if order is not None:
+            events = order(conn, events, now)
         stats.events_considered = len(events)
         collector = module.collector(http=http)
         try:
@@ -143,6 +155,10 @@ def run(
                 except ratelimit.RateLimitExceeded as exc:
                     stats.stopped = str(exc)
                     log.warning("%s stopped for this run: %s", source_id, exc)
+                    break
+                except SkipSource as exc:
+                    stats.stopped = str(exc)
+                    log.warning("%s", exc)
                     break
                 except Exception as exc:  # one event's failure must not end the run
                     stats.errors += 1
@@ -162,6 +178,14 @@ def run(
                     record_run(conn, event["event_id"], source_id, until, result, now)
                 log.info("%s event=%s title=%r items=%d new=%d since=%s", source_id, event["event_id"], event["title"], result.items_seen, result.documents_new, to_iso(since))
         finally:
+            sweep = getattr(collector, "sweep", None)
+            if sweep is not None:
+                try:
+                    removed = sweep(conn, now)
+                    if removed:
+                        log.info("%s compliance removed=%d", source_id, removed)
+                except Exception as exc:
+                    log.warning("%s compliance sweep failed error=%s: %s", source_id, type(exc).__name__, str(exc)[:300])
             collector.close()
     return out
 

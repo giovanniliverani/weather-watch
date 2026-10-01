@@ -165,10 +165,15 @@ def log_geocode(provider: str, query_norm: str, country_hint: str, *, hit: bool,
     })
 
 
-def _public_params(params: dict | None) -> dict | None:
+def _public_params(params) -> dict | None:
+    """Query parameters safe to keep in the log. A list of pairs is accepted (repeated keys); secrets become '<set>'."""
     if not params:
         return None
-    return {k: ("<set>" if k.lower() in config.SECRET_PARAMS else v) for k, v in params.items()}
+    pairs = params.items() if isinstance(params, dict) else params
+    redacted: dict = {}
+    for key, value in pairs:
+        redacted[str(key)] = "<set>" if str(key).lower() in config.SECRET_PARAMS else value
+    return redacted
 
 
 def read(since: datetime | None = None, kind: str | None = None) -> list[dict]:

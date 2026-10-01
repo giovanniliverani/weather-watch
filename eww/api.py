@@ -1,6 +1,6 @@
 """The GeoJSON contract from docs/architecture.md §2, plus (M3) the two other reads the viewer needs:
-`event_documents()` for the sidebar's News tab and `attributions()` for the About section. The viewer
-imports this module and eww.review and nothing else.
+`event_documents()` for the sidebar and `attributions()` for the About section, and (M5) `forecast()` for
+the Weather tab. The viewer imports this module and eww.review and nothing else.
 
     events_geojson(since, until=None, hazard=None, min_severity=0.0, status=None,
                    bbox=None, include_footprints=False, limit=2000) -> FeatureCollection
@@ -20,7 +20,7 @@ import sqlite3
 from datetime import datetime
 from typing import Iterable
 
-from eww import collectors, config, db, embed, events, heartbeat
+from eww import collectors, config, db, embed, events, heartbeat, weather
 from eww.clock import now_utc, parse_when, to_iso
 
 HAZARD_TYPES: list[str] = list(config.HAZARD_TYPES)
@@ -311,7 +311,7 @@ def count_in_window(conn: sqlite3.Connection, since: str | datetime, until: str 
 
 
 # ----------------------------------------------------------------------------- M3: the News tab and the About section
-DOCUMENT_FIELDS = ("document_id", "source_id", "kind", "title", "url", "publisher", "published_at", "media_url", "media_kind", "language", "score", "method", "decided_by")
+DOCUMENT_FIELDS = ("document_id", "source_id", "kind", "title", "text_excerpt", "url", "author", "publisher", "published_at", "media_url", "media_kind", "language", "score", "method", "decided_by")
 
 
 def event_documents(event_id: str, *, conn: sqlite3.Connection | None = None, limit: int = 100) -> list[dict]:
@@ -330,8 +330,8 @@ def event_documents(event_id: str, *, conn: sqlite3.Connection | None = None, li
         marks = ", ".join("?" * len(ids))
         rows = conn.execute(
             f"""
-            SELECT d.document_id, d.source_id, d.kind, d.title, d.url, d.publisher, d.published_at, d.media_url, d.media_kind, d.language,
-                   ed.score, ed.method, ed.decided_by
+            SELECT d.document_id, d.source_id, d.kind, d.title, d.text_excerpt, d.url, d.author, d.publisher, d.published_at,
+                   d.media_url, d.media_kind, d.language, ed.score, ed.method, ed.decided_by
             FROM event_document ed JOIN document d ON d.document_id = ed.document_id
             WHERE ed.event_id IN ({marks}) AND ed.status = 'attached' AND d.removed_at IS NULL
             ORDER BY COALESCE(d.published_at, d.fetched_at) DESC, d.document_id
@@ -376,4 +376,15 @@ def attributions(*, conn: sqlite3.Connection | None = None) -> list[dict]:
     out.append({"id": "geonames", "name": "GeoNames gazetteer and web service", "attribution": config.GEOCODER_ATTRIBUTIONS["gazetteer"], "terms_url": "https://creativecommons.org/licenses/by/4.0/"})
     out.append({"id": "nominatim", "name": "Nominatim (OpenStreetMap)", "attribution": config.GEOCODER_ATTRIBUTIONS["nominatim"], "terms_url": "https://operations.osmfoundation.org/policies/nominatim/"})
     out.append({"id": "osm-tiles", "name": "Map tiles", "attribution": "© OpenStreetMap contributors, ODbL", "terms_url": "https://www.openstreetmap.org/copyright"})
+    out.append({"id": "open-meteo", "name": "Open-Meteo", "attribution": config.OPEN_METEO_ATTRIBUTION, "terms_url": "https://open-meteo.com/en/licence"})
     return out
+
+
+# ----------------------------------------------------------------------------- M5: the Weather tab
+FORECAST_ATTRIBUTION = weather.ATTRIBUTION
+FORECAST_CACHE_TTL_S = weather.CACHE_TTL_S  # the viewer caches the dict this long; nothing is written to SQLite
+
+
+def forecast(latitude: float, longitude: float) -> dict:
+    """Current conditions and OPEN_METEO_FORECAST_DAYS daily rows for one pin, from the public Open-Meteo endpoint."""
+    return weather.forecast(latitude, longitude)

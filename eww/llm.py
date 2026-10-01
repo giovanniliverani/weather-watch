@@ -1055,13 +1055,17 @@ def make_extractor(conn: sqlite3.Connection, estimate: float, *, backend: str | 
 
 # ----------------------------------------------------------------------------- what the pipeline asks the model
 def ambiguous_documents(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Documents the lexicon-and-NER stage left without a hazard type or without a resolved place, not yet sent to a model."""
+    """Documents the lexicon-and-NER stage left without a hazard type or without a resolved place, not yet sent to a model.
+
+    Posts and videos are excluded: social text is attached from the query that fetched it, and no model
+    (local or cloud) is asked to read it.
+    """
     rows = conn.execute(
         """
         SELECT d.*, x.hazard_type AS x_hazard, x.hazard_confidence AS x_confidence, x.places AS x_places, x.event_date AS x_date
         FROM document d
         JOIN document_extraction x ON x.document_id = d.document_id
-        WHERE d.removed_at IS NULL AND x.method = ?
+        WHERE d.removed_at IS NULL AND x.method = ? AND d.kind NOT IN ('post', 'video')
         ORDER BY d.document_id
         """,
         (config.EXTRACT_METHOD,),

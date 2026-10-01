@@ -184,9 +184,9 @@ def sync(
     refresh_days: int = typer.Option(30, "--refresh-days", help="Also refresh events seen in the last N days."),
     branch: str = typer.Option(config.DATA_BRANCH, "--branch"),
     repo: Optional[Path] = typer.Option(None, "--repo"),
-    do_enrich: bool = typer.Option(True, "--enrich/--no-enrich", help="Query GDELT and ReliefWeb for the active events (laptop only)."),
+    do_enrich: bool = typer.Option(True, "--enrich/--no-enrich", help="Query news and social providers for the active events (laptop only)."),
     do_attach: bool = typer.Option(True, "--attach/--no-attach", help="Extract, embed and attach the new documents."),
-    max_events: Optional[int] = typer.Option(None, "--max-events", help=f"Events per provider per run (default {config.ENRICH_MAX_EVENTS_PER_RUN})."),
+    max_events: Optional[int] = typer.Option(None, "--max-events", help="Cap events per provider. Default: each provider's own cap (GDELT 3, others 40, social sources every active event)."),
 ) -> None:
     """git fetch + ingest + resolve, then enrich + extract + embed + attach, then the model (ambiguous documents and summaries)."""
     started = time.monotonic()
@@ -348,6 +348,7 @@ def doctor(
     if missed:
         typer.echo("  most recent missed slots: " + ", ".join(missed))
     _doctor_m3(conn, now, log_days)
+    _doctor_m5(conn, now)
 
 
 def _doctor_m3(conn, now, log_days: int) -> None:
@@ -403,21 +404,42 @@ def _doctor_m3(conn, now, log_days: int) -> None:
         typer.echo(line)
 
 
+def _doctor_m5(conn, now) -> None:
+    """Posts and videos attached from the free collectors, and the rate limits those collectors keep (M5)."""
+    cov = report.social_coverage(conn, now=now)
+    share = "n/a" if cov["share"] is None else f"{100 * cov['share']:.0f}%"
+    verdict = "n/a" if cov["events"] == 0 else ("PASS" if cov["share"] >= config.SOCIAL_COVERAGE_TARGET else "FAIL")
+    typer.echo(
+        f"social coverage: {cov['covered']} of {cov['events']} events active in the last {config.SOCIAL_COVERAGE_DAYS} days "
+        f"have an attached post or video ({share}; target {100 * config.SOCIAL_COVERAGE_TARGET:.0f}%: {verdict}; free collectors only)"
+    )
+    days = report.youtube_searches_by_day(conn)
+    worst = max((max(row["collector_run"], row["log"]) for row in days.values()), default=0)
+    typer.echo(f"youtube searches in the busiest UTC day: {worst} (limit {config.YOUTUBE_SEARCHES_PER_DAY}: {'PASS' if worst <= config.YOUTUBE_SEARCHES_PER_DAY else 'FAIL'})")
+    spacing = report.bluesky_min_spacing()
+    if spacing is None:
+        typer.echo(f"bluesky spacing: n/a (fewer than 2 calls; limit {config.BLUESKY_MIN_INTERVAL_S:.0f}s): PASS")
+    else:
+        typer.echo(f"bluesky min spacing: {spacing:.1f}s (limit {config.BLUESKY_MIN_INTERVAL_S:.0f}s: {'PASS' if spacing + 1e-9 >= config.BLUESKY_MIN_INTERVAL_S else 'FAIL'})")
+    media = report.media_files()
+    typer.echo(f"media files under {config.DATA_DIR}: {len(media)} ({'PASS' if not media else 'FAIL'})")
+
+
 # ----------------------------------------------------------------------------- M3: enrichment, extraction, embeddings, attachment
 @app.command()
 def enrich(
     source: Optional[list[str]] = typer.Option(None, "--source", "-s", help=f"Provider; repeat for several. Default: {', '.join(config.ENRICH_SOURCES)}."),
     days: int = typer.Option(config.ENRICH_ACTIVE_DAYS, "--days", help="Events observed or ended in the last N days are queried."),
-    max_events: int = typer.Option(config.ENRICH_MAX_EVENTS_PER_RUN, "--max-events", help="Events per provider per run, best severity first (0 = every active event)."),
+    max_events: Optional[int] = typer.Option(None, "--max-events", help="Cap events per provider. Default: each provider's own cap. 0 queries every active event."),
 ) -> None:
-    """Query GDELT (and ReliefWeb when RELIEFWEB_APPNAME is set) for the active events; write document rows. Laptop only."""
+    """Query the news and social providers for the active events; write document rows. Laptop only."""
     unknown = [x for x in (source or []) if x not in config.ENRICH_SOURCES]
     if unknown:
         typer.echo(f"unknown provider(s): {', '.join(unknown)}; known: {', '.join(config.ENRICH_SOURCES)}", err=True)
         raise typer.Exit(code=2)
     conn = _open()
     started = time.monotonic()
-    stats = enrich_mod.run(conn, source or None, days=days, max_events=max_events or None)
+    stats = enrich_mod.run(conn, source or None, days=days, max_events=max_events)
     for source_id, st in stats.items():
         typer.echo(
             f"{source_id}: events considered={st.events_considered} queried={st.events_queried} skipped={st.events_skipped} "
@@ -610,6 +632,28 @@ def report_volume(
         f"({result['snapshot_files']} files, {result['commits']} commits); per day={result['per_day_mb']} MB; "
         f"per year={result['per_year_mb']} MB; verdict={result['verdict']}"
     )
+
+
+@report_app.command("social")
+def report_social(
+    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m5.md (the milestone record)."),
+) -> None:
+    """Write the M5 social report: coverage, YouTube and Bluesky limits, the hand-check sample, one forecast timing."""
+    conn = _open()
+    path, result = report.write_social_report(conn, out)
+    typer.echo(f"written {path}")
+    cov = result["coverage"]
+    share = "n/a" if cov["share"] is None else f"{100 * cov['share']:.1f}%"
+    typer.echo(f"coverage: {cov['covered']} of {cov['events']} ({share}; target {100 * config.SOCIAL_COVERAGE_TARGET:.0f}%: {'PASS' if result['coverage_passed'] else 'FAIL'})")
+    typer.echo(f"hand check: {result['sample']['relevant']} relevant of {result['sample']['labelled']} labelled ({'PASS' if result['relevance_passed'] else 'FAIL'})")
+    typer.echo(f"youtube busiest UTC day: {result['youtube_busiest']} searches ({'PASS' if result['youtube_passed'] else 'FAIL'})")
+    spacing = "n/a" if result["bluesky_min_spacing_s"] is None else f"{result['bluesky_min_spacing_s']:.1f}s"
+    typer.echo(f"bluesky min spacing: {spacing} ({'PASS' if result['bluesky_passed'] else 'FAIL'}); media files: {result['media_files']} ({'PASS' if result['media_passed'] else 'FAIL'})")
+    probe = result["weather"]
+    if probe["ok"]:
+        typer.echo(f"weather probe: {probe['elapsed_s']:.3f}s, {probe['rows']} days, {probe['temperature_c']} °C ({'PASS' if result['weather_passed'] else 'FAIL'})")
+    else:
+        typer.echo(f"weather probe failed: {probe['error']}")
 
 
 @report_app.command("identity")

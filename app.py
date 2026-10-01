@@ -1,10 +1,10 @@
 """Extreme Weather Watch viewer: a Streamlit page with a folium map of events_geojson(), a Review tab and an About tab.
 
-Imports only eww.api (reads: the GeoJSON contract, an event's attached documents, the attribution list)
-and eww.review (the write actions behind Accept, Reject and Revert). No SQL, no HTML, no JavaScript,
-no CSS: every filter is a Streamlit widget whose value is passed to events_geojson(), and the sidebar is
-built from each feature's `properties` plus event_documents(), exactly as a future frontend would build
-it from the same API. Run with `uv run streamlit run app.py`.
+Imports only eww.api (the GeoJSON contract, an event's attached documents, the attribution list, the
+forecast shown when a pin is clicked) and eww.review (the write actions behind Accept, Reject and
+Revert). No SQL, no HTML, no JavaScript, no CSS: every filter is a Streamlit widget whose value is
+passed to events_geojson(), and the sidebar is built from each feature's `properties` plus
+event_documents(). Run with `uv run streamlit run app.py`.
 """
 
 from __future__ import annotations
@@ -17,6 +17,27 @@ from folium import plugins
 from streamlit_folium import st_folium
 
 from eww import api, review
+
+
+@st.cache_data(ttl=api.FORECAST_CACHE_TTL_S, show_spinner=False)
+def forecast_at(latitude: float, longitude: float) -> dict:
+    """Current conditions and five daily rows. Cached for half an hour; nothing is written to the database."""
+    return api.forecast(latitude, longitude)
+
+
+def _measure(value, unit: str) -> str:
+    if value is None:
+        return "not reported"
+    return f"{value:g} {unit}"
+
+
+def _thumbnail(item: dict) -> None:
+    if not item["media_url"] or item["media_kind"] != "image":
+        return
+    try:
+        st.image(item["media_url"], width=THUMBNAIL_WIDTH)
+    except Exception:  # an unloadable reference falls back to the link
+        st.markdown(f"[thumbnail]({item['media_url']})")
 
 DEFAULT_DAYS = 14
 SEVERITY_STEPS = [0.0, 0.33, 0.66, 1.0]
@@ -213,7 +234,9 @@ else:
     st.sidebar.subheader(p["title"])
     if p["ems_activation"]:
         st.sidebar.badge("EMS activation", color="orange")
-    details_tab, news_tab = st.sidebar.tabs(["Details", f"News ({p['doc_count']})"])
+    details_tab, news_tab, posts_tab, videos_tab, weather_tab = st.sidebar.tabs(
+        ["Details", f"News ({p['doc_count']})", f"Posts ({p['post_count']})", f"Videos ({p['video_count']})", "Weather"]
+    )
     with details_tab:
         st.write(f"Hazard: {p['hazard_type'].replace('_', ' ')}")
         st.write(f"Status: {p['status']}")
@@ -226,6 +249,8 @@ else:
         if p["glide_number"]:
             st.write(f"GLIDE: {p['glide_number']}")
         st.write(f"Attached headlines and reports: {p['doc_count']}")
+        st.write(f"Posts: {p['post_count']}")
+        st.write(f"Videos: {p['video_count']}")
         if p["summary"]:
             st.write(p["summary"])
             as_of = (p["summary_updated_at"] or "").replace("T", " ").removesuffix("Z")
@@ -233,23 +258,55 @@ else:
         if p["detail_url"]:
             st.link_button("Open the source's page", p["detail_url"])
         st.caption(f"event_id {p['event_id']}")
+    items = api.event_documents(p["event_id"])
+    news = [item for item in items if item["kind"] in {"article", "report"}]
+    posts = [item for item in items if item["kind"] == "post"]
+    videos = [item for item in items if item["kind"] == "video"]
     with news_tab:
-        items = api.event_documents(p["event_id"])
-        if not items:
+        if not news:
             st.write("No headlines attached yet. Run `uv run eww sync` to query GDELT and ReliefWeb for the active events.")
-        for item in items:
+        for item in news:
             st.markdown(f"**[{item['title'] or item['url']}]({item['url']})**")
             when = (item["published_at"] or "undated").replace("T", " ").rstrip("Z")
             line = f"{item['publisher'] or item['source_id']} · {when}"
             if item["copies"] > 1:
                 line += f" · {item['copies']} copies from {len(item['publishers'])} source{'s' if len(item['publishers']) != 1 else ''}: {', '.join(item['publishers'][:4])}" + (" …" if len(item["publishers"]) > 4 else "")
             st.caption(line)
-            if item["media_url"] and item["media_kind"] == "image":
-                try:
-                    st.image(item["media_url"], width=THUMBNAIL_WIDTH)
-                except Exception:  # an unloadable reference falls back to the link
-                    st.markdown(f"[thumbnail]({item['media_url']})")
+            _thumbnail(item)
         st.caption("Headlines via the GDELT Project; reports via ReliefWeb. Thumbnails load from the publisher's own URL and are never stored.")
+    with posts_tab:
+        if not posts:
+            st.write("No posts attached yet.")
+        for item in posts:
+            text = item["text_excerpt"] or item["title"] or item["url"]
+            st.markdown(f"[{text}]({item['url']})")
+            when = (item["published_at"] or "undated").replace("T", " ").rstrip("Z")
+            st.caption(f"{item['author'] or item['publisher'] or item['source_id']} · {when}")
+            _thumbnail(item)
+    with videos_tab:
+        if not videos:
+            st.write("No videos attached yet.")
+        for item in videos:
+            _thumbnail(item)
+            st.markdown(f"[{item['title'] or item['url']}]({item['url']})")
+            when = (item["published_at"] or "undated").replace("T", " ").rstrip("Z")
+            st.caption(f"{item['author'] or item['publisher'] or item['source_id']} · {when}")
+    with weather_tab:
+        lon, lat = selected["geometry"]["coordinates"][:2]
+        try:
+            outlook = forecast_at(round(float(lat), 4), round(float(lon), 4))
+        except Exception:
+            st.error("Weather is unavailable for this pin right now.")
+        else:
+            current = outlook["current"]
+            st.write(
+                f"{current['conditions']} · {_measure(current['temperature_c'], '°C')} · "
+                f"precipitation {_measure(current['precipitation_mm'], 'mm')} · wind {_measure(current['wind_kmh'], 'km/h')}"
+            )
+            if current["observed_at"]:
+                st.caption(f"Observed {current['observed_at']}")
+            st.table(outlook["daily"])
+        st.caption(api.FORECAST_ATTRIBUTION)
 
 st.sidebar.header("Legend")
 for hazard in api.HAZARD_TYPES:

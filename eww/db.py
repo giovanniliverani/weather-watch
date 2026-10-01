@@ -17,7 +17,7 @@ from eww.clock import now_iso
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 4  # 1: the §3 DDL; 2: heartbeat (0002); 3: enrichment (0003, M3); 4: event.summary_evidence (0004, M4)
+SCHEMA_VERSION = 5  # 1: the §3 DDL; 2: heartbeat (0002); 3: enrichment (0003, M3); 4: event.summary_evidence (0004, M4); 5: heartbeat counts spine sources only (0005, M5)
 MIGRATIONS_DIR = config.PROJECT_ROOT / "sql" / "migrations"
 
 
