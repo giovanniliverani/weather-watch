@@ -1,4 +1,4 @@
-// The side panel for the selected event: Details, News, Posts and Weather tabs (WAI-ARIA tabs pattern).
+﻿// The side panel for the selected event: Details, News, Posts and Weather tabs (WAI-ARIA tabs pattern).
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fetchDocuments, fetchForecast } from './api'
 import { formatDay, formatWhen, hazardName, measure, plural } from './format'
@@ -21,13 +21,14 @@ export default function Panel({ event, onClose }: Props) {
   const p = event.properties
   const [lon, lat] = event.geometry.coordinates
   const [tab, setTab] = useState<Tab>('Details')
-  const [weatherWanted, setWeatherWanted] = useState(false)
+  // The event whose forecast was asked for by hovering or focusing the Weather tab; other events wait for a click.
+  const [weatherWantedFor, setWeatherWantedFor] = useState<string | null>(null)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
   const baseId = useId()
 
   const documents = useResource(p.event_id, (signal) => fetchDocuments(p.event_id, signal), documentCache)
   const forecastKey = `${lat.toFixed(4)},${lon.toFixed(4)}`
-  const forecast = useResource(weatherWanted || tab === 'Weather' ? forecastKey : null, (signal) => fetchForecast(lat, lon, signal), forecastCache)
+  const forecast = useResource(weatherWantedFor === p.event_id || tab === 'Weather' ? forecastKey : null, (signal) => fetchForecast(lat, lon, signal), forecastCache)
 
   function onTabKey(e: KeyboardEvent, index: number) {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
@@ -43,7 +44,7 @@ export default function Panel({ event, onClose }: Props) {
       <header className="panel-head">
         <h2 id={`${baseId}-title`}>{p.title}</h2>
         <button type="button" className="close" onClick={onClose} aria-label="Close event">
-          ×
+          Ã—
         </button>
       </header>
       <div role="tablist" aria-label="Event information" className="tabs">
@@ -61,8 +62,8 @@ export default function Panel({ event, onClose }: Props) {
             tabIndex={tab === name ? 0 : -1}
             onClick={() => setTab(name)}
             onKeyDown={(e) => onTabKey(e, index)}
-            onPointerEnter={name === 'Weather' ? () => setWeatherWanted(true) : undefined}
-            onFocus={name === 'Weather' ? () => setWeatherWanted(true) : undefined}
+            onPointerEnter={name === 'Weather' ? () => setWeatherWantedFor(p.event_id) : undefined}
+            onFocus={name === 'Weather' ? () => setWeatherWantedFor(p.event_id) : undefined}
           >
             {name}
             {name === 'News' && p.doc_count ? <span className="count">{p.doc_count}</span> : null}
@@ -151,7 +152,7 @@ function Media({ item }: { item: DocumentItem }) {
 }
 
 function DocumentList({ resource, kinds, empty }: { resource: Resource<DocumentItem[]>; kinds: DocumentItem['kind'][]; empty: string }) {
-  if (resource.state === 'loading' || resource.state === 'idle') return <p className="hint">Loading…</p>
+  if (resource.state === 'loading' || resource.state === 'idle') return <p className="hint">Loadingâ€¦</p>
   if (resource.state === 'error') return <p className="error">Could not load documents: {resource.error.message}</p>
   // Splitting by kind into the two tabs is presentation, as in app.py.
   const items = resource.data.filter((item) => kinds.includes(item.kind))
@@ -167,8 +168,8 @@ function DocumentList({ resource, kinds, empty }: { resource: Resource<DocumentI
               {text ?? item.url}
             </a>
             <p className="hint">
-              {who} · {formatWhen(item.published_at)}
-              {item.copies > 1 ? ` · ${plural(item.copies, 'copy')} from ${item.publishers.join(', ') || 'one source'}` : null}
+              {who} Â· {formatWhen(item.published_at)}
+              {item.copies > 1 ? ` Â· ${plural(item.copies, 'copy')} from ${item.publishers.join(', ') || 'one source'}` : null}
             </p>
             <Media item={item} />
           </li>
@@ -179,7 +180,7 @@ function DocumentList({ resource, kinds, empty }: { resource: Resource<DocumentI
 }
 
 function Weather({ resource }: { resource: Resource<Forecast> }) {
-  if (resource.state === 'loading' || resource.state === 'idle') return <p className="hint">Loading the forecast…</p>
+  if (resource.state === 'loading' || resource.state === 'idle') return <p className="hint">Loading the forecastâ€¦</p>
   if (resource.state === 'error') {
     return <p className="error">{resource.error.message.startsWith('Open-Meteo') ? 'Open-Meteo did not answer. Try again in a minute.' : resource.error.message}</p>
   }
@@ -187,11 +188,11 @@ function Weather({ resource }: { resource: Resource<Forecast> }) {
   return (
     <>
       <p className="now">
-        <span className="temp">{measure(current.temperature_c, '°C')}</span> {current.conditions}
+        <span className="temp">{measure(current.temperature_c, 'Â°C')}</span> {current.conditions}
       </p>
       <p className="hint">
-        Precipitation {measure(current.precipitation_mm, 'mm')} · wind {measure(current.wind_kmh, 'km/h')}
-        {current.observed_at ? ` · observed ${current.observed_at.replace('T', ' ')} local time` : null}
+        Precipitation {measure(current.precipitation_mm, 'mm')} Â· wind {measure(current.wind_kmh, 'km/h')}
+        {current.observed_at ? ` Â· observed ${current.observed_at.replace('T', ' ')} local time` : null}
       </p>
       <table className="forecast">
         <caption>Next {daily.length} days</caption>
@@ -209,8 +210,8 @@ function Weather({ resource }: { resource: Resource<Forecast> }) {
             <tr key={day.date}>
               <th scope="row">{formatDay(day.date)}</th>
               <td>{day.conditions}</td>
-              <td>{measure(day.high_c, '°C')}</td>
-              <td>{measure(day.low_c, '°C')}</td>
+              <td>{measure(day.high_c, 'Â°C')}</td>
+              <td>{measure(day.low_c, 'Â°C')}</td>
               <td>{measure(day.precipitation_mm, 'mm')}</td>
             </tr>
           ))}
