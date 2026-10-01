@@ -253,6 +253,16 @@ def resolve_cmd(
     )
 
 
+def export_collection(conn, since: str, until: str | None, hazard: list[str] | None, min_severity: float, status: list[str] | None, footprints: bool, limit: int) -> dict:
+    """Map `eww export`'s options onto events_geojson(); `eww report frontend` reuses it on a read-only connection."""
+    return api.events_geojson(since, until, hazard or None, min_severity, status or None, None, footprints, limit, conn=conn)
+
+
+def pin_count(collection: dict) -> int:
+    """Count the Point features, as `eww export --count` prints."""
+    return sum(1 for f in collection["features"] if f["geometry"]["type"] == "Point")
+
+
 @app.command()
 def export(
     since: str = typer.Option(config.DEFAULT_EXPORT_SINCE, "--since", help="ISO 8601 or relative, e.g. 30d."),
@@ -268,13 +278,11 @@ def export(
     """Print the GeoJSON FeatureCollection defined in eww/api.py."""
     conn = _open()
     try:
-        collection = api.events_geojson(
-            since, until, hazard or None, min_severity, status or None, None, footprints, limit, conn=conn
-        )
+        collection = export_collection(conn, since, until, hazard, min_severity, status, footprints, limit)
     except (ValueError, OverflowError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     if count:
-        typer.echo(sum(1 for f in collection["features"] if f["geometry"]["type"] == "Point"))
+        typer.echo(pin_count(collection))
         return
     text = json.dumps(collection, ensure_ascii=True, separators=(",", ":"))
     if out is not None:

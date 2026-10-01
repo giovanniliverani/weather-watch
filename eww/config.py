@@ -70,6 +70,7 @@ WEB_DIR = PROJECT_ROOT / "web"  # the React app; `npm run build` writes web/dist
 WEB_DEV_URL = "http://localhost:5173/"
 FRONTEND_FIRST_LOAD_JS_KB = 600  # gzipped JavaScript on first load, map library included
 FRONTEND_FORECAST_S = 3.0  # the Weather tab's forecast must arrive within this
+FRONTEND_BUILD_TIMEOUT_S = 600.0  # `eww report frontend --build` gives up on npm after this
 FRONTEND_PARITY_FLOOD = {"since": "7d", "hazard": "flood", "min_severity": 0.66}  # the second parity view
 FRONTEND_DIFF_BASE = "origin/main"
 # Python files M7 may change; anything else in the diff is flagged (tests/ is always allowed).

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import gzip
 import json
+import stat
 import subprocess
+from contextlib import closing
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
-from eww import api, config, frontend_report, weather
+from eww import api, config, db, frontend_report, weather
 from eww.cli import app as cli_app
 from eww.clock import parse_iso
 from eww.serve import create_app
@@ -96,7 +99,7 @@ def test_parity_agrees_across_api_export_and_http(conn, ready, client, map_count
     for name, view in frontend_report.views():
         expected = sum(1 for f in api.events_geojson(view["since"], hazard=view.get("hazard"), min_severity=view.get("min_severity", 0.0), limit=0, conn=conn)["features"])
         count = expected if map_count == "same" else map_count
-        rows.append(frontend_report.parity(conn, client, ready, name, view, count))
+        rows.append(frontend_report.parity(conn, client, name, view, count))
         assert rows[-1]["events_geojson"] == rows[-1]["export"] == rows[-1]["http"] == expected
     assert rows[0]["events_geojson"] > 0 and rows[1]["events_geojson"] > 0
     assert {row["verdict"] for row in rows} == {verdict}
@@ -154,7 +157,8 @@ def test_changed_python_reads_git(tmp_path):
     (tmp_path / "notes.md").write_text("not python\n")
     git("add", "-A")
     git("commit", "-qm", "change")
-    assert frontend_report.changed_python("HEAD~1", tmp_path) == ["app.py", "eww/serve.py"]
+    (tmp_path / "eww" / "new_module.py").write_text("n = 1\n")  # untracked, never added
+    assert frontend_report.changed_python("HEAD~1", tmp_path) == ["app.py", "eww/new_module.py", "eww/serve.py"]
     assert "could not compare" in frontend_report.changed_python("no-such-ref", tmp_path)
 
 
@@ -182,3 +186,87 @@ def test_cli_report_frontend(ready, tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert f"written {out}" in result.output and "not built" in result.output
     assert "map 3" in out.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- failure modes found in review
+def test_report_runs_against_a_read_only_database_file(ready, tmp_path, monkeypatch):
+    with closing(db.connect(ready)) as writer:
+        writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    ready.chmod(stat.S_IREAD)
+    try:
+        monkeypatch.setattr(config, "WEB_DIR", tmp_path / "web")
+        out = tmp_path / "m7.md"
+        result = CliRunner().invoke(cli_app, ["--db", str(ready), "report", "frontend", "--out", str(out), "--no-network", "--base", "HEAD"])
+        assert result.exit_code == 0, result.output
+        assert "Pin parity" in out.read_text(encoding="utf-8")
+    finally:
+        ready.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+def test_export_count_matches_the_cli(conn, ready):
+    view = {"since": "36500d", "hazard": ["flood"], "min_severity": 0.0}
+    printed = CliRunner().invoke(cli_app, ["--db", str(ready), "export", "--count", "--since", "36500d", "--hazard", "flood"])
+    assert int(printed.stdout.strip().splitlines()[-1]) == frontend_report.export_count(conn, view) > 0
+
+
+class StubClient:
+    """Answers /events.geojson and /documents from the real client and /forecast with a fixed status."""
+
+    def __init__(self, client: TestClient, status: int, body: str) -> None:
+        self.client, self.status, self.body = client, status, body
+
+    def get(self, url: str, params: dict | None = None):
+        if url == "/forecast":
+            return httpx.Response(self.status, text=self.body)
+        return self.client.get(url, params=params)
+
+
+@pytest.mark.parametrize(("status", "body", "skipped"), [(502, '{"detail": "Open-Meteo unavailable"}', True), (400, '{"detail": "lat out of range"}', False), (500, "Internal Server Error", False)])
+def test_only_a_502_forecast_is_skipped(client, status, body, skipped):
+    pin = frontend_report.sample_pin(StubClient(client, status, body))
+    assert pin["forecast"]["skipped"] is skipped and pin["forecast"]["ok"] is False
+    assert frontend_report._pin_rows(pin)[1][3] == ("SKIPPED" if skipped else "FAIL")
+
+
+def test_build_without_a_web_folder_fails_cleanly(tmp_path, monkeypatch):
+    monkeypatch.setattr(frontend_report.shutil, "which", lambda name: "npm")
+    assert "folder" in frontend_report.run_build(tmp_path / "web")["error"]
+
+
+def test_hung_build_times_out(tmp_path, monkeypatch):
+    def hang(*args, **kwargs):
+        raise subprocess.TimeoutExpired("npm", kwargs["timeout"])
+
+    monkeypatch.setattr(frontend_report.shutil, "which", lambda name: "npm")
+    monkeypatch.setattr(frontend_report.subprocess, "run", hang)
+    assert "took over" in frontend_report.run_build(tmp_path)["error"]
+
+
+def test_vite_relative_base_and_css(tmp_path):
+    assets = tmp_path / "dist" / "assets"
+    assets.mkdir(parents=True)
+    (assets / "index-cMXJ.js").write_text('const MapView = () => import("./MapView-BXSh.js");')
+    (assets / "MapView-BXSh.js").write_text("maplibre" * 1000)
+    (assets / "index-Dq2.css").write_text("body{}" * 100)
+    html = '<script type="module" crossorigin src="./assets/index-cMXJ.js"></script><link rel="stylesheet" href="./assets/index-Dq2.css">'
+    (tmp_path / "dist" / "index.html").write_text(html)
+    bundle = frontend_report.first_load_js(tmp_path / "dist")
+    assert {c["name"] for c in bundle["chunks"]} == {"index-cMXJ.js", "MapView-BXSh.js"}
+    assert "lazy ones included" in bundle["method"]
+
+
+def test_odd_audit_files_fail_without_a_crash(tmp_path):
+    (tmp_path / "audit.json").write_text("[1, 2]")
+    assert frontend_report._audit_row(frontend_report.read_audit(tmp_path))[3] == "FAIL"
+    (tmp_path / "audit.json").write_bytes(b"\xff\xfe\x00bad")
+    assert frontend_report._audit_row(frontend_report.read_audit(tmp_path))[3] == "FAIL"
+
+
+def test_titles_with_a_pipe_keep_the_table_intact():
+    pin = {"event": {"event_id": "E1", "title": "Flood | Storm", "lat": 1.0, "lon": 2.0}, "news": 1, "posts": 0, "forecast": {"skipped": True, "error": "x"}}
+    assert "Flood \\| Storm" in frontend_report._pin_rows(pin)[0][0]
+
+
+def test_an_empty_view_is_labelled(conn, client):
+    row = frontend_report.parity(conn, client, "flood", {"since": "7d", "hazard": ["tsunami"], "min_severity": 0.99}, 0)
+    assert row["events_geojson"] == 0 and "view is empty" in frontend_report._parity_row(row)[1]

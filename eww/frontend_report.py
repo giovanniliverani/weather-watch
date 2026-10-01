@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from eww import api, config
-from eww.clock import now_utc, to_iso
+from eww.clock import now_utc, parse_when, to_iso
 
 PASS, FAIL, BY_HAND, SKIPPED = "PASS", "FAIL", "CHECK BY HAND", "SKIPPED"
 NEWS_KINDS = {"article", "report"}  # the News tab; every other kind goes to Posts, as app.py splits them
@@ -59,11 +59,21 @@ def first_load_js(dist: Path) -> dict:
 
 def run_build(web_dir: Path) -> dict:
     """Run `npm run build` in web/ and time it; a non-zero exit or a TypeScript error is a failed build."""
+    def failed(error: str) -> dict:
+        return {"ran": True, "ok": False, "seconds": None, "ts_errors": None, "error": error}
+
     npm = shutil.which("npm")
     if npm is None:
-        return {"ran": True, "ok": False, "seconds": None, "ts_errors": None, "error": "npm is not on PATH"}
+        return failed("npm is not on PATH")
+    if not web_dir.is_dir():
+        return failed(f"no {web_dir} folder")
     started = time.monotonic()
-    proc = subprocess.run([npm, "run", "build"], cwd=web_dir, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+    try:
+        proc = subprocess.run([npm, "run", "build"], cwd=web_dir, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=config.FRONTEND_BUILD_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return failed(f"npm run build took over {config.FRONTEND_BUILD_TIMEOUT_S:g} s")
+    except OSError as exc:
+        return failed(f"npm could not start: {exc}")
     output = proc.stdout + proc.stderr
     ts_errors = len(TS_ERROR_RE.findall(output))
     tail = "; ".join(line.strip() for line in output.strip().splitlines()[-3:])
@@ -88,28 +98,22 @@ def _points(collection: dict) -> int:
     return sum(1 for feature in collection["features"] if feature["geometry"]["type"] == "Point")
 
 
-def export_count(db_path: Path | None, view: dict) -> int:
-    """The pin count `eww export --count` prints for `view`."""
-    from typer.testing import CliRunner
+def export_count(conn: sqlite3.Connection, view: dict) -> int:
+    """The pin count `eww export --count` prints for `view`, through the same option mapping, on `conn`."""
+    # Imported here, not at the top: eww.cli imports this module.
+    from eww.cli import export_collection, pin_count
 
-    from eww.cli import app  # here, not at the top: eww.cli imports this module
-
-    args = [*(["--db", str(db_path)] if db_path else []), "export", "--count", "--limit", "0", "--since", view["since"]]
-    args += [arg for hazard in view.get("hazard", []) for arg in ("--hazard", hazard)]
-    args += ["--min-severity", str(view.get("min_severity", 0.0))]
-    result = CliRunner().invoke(app, args)
-    if result.exit_code != 0:
-        raise RuntimeError(f"eww export failed: {result.output.strip()[-200:]}")
-    return int(result.stdout.strip().splitlines()[-1])
+    return pin_count(export_collection(conn, view["since"], None, view.get("hazard"), view.get("min_severity", 0.0), None, False, 0))
 
 
-def parity(conn: sqlite3.Connection, client, db_path: Path | None, name: str, view: dict, map_count: int | None) -> dict:
+def parity(conn: sqlite3.Connection, client, name: str, view: dict, map_count: int | None) -> dict:
     """One view's pin count from events_geojson(), `eww export --count` and GET /events.geojson?limit=0."""
+    view = {**view, "since": to_iso(parse_when(view["since"], api.now_utc()))}  # one window for all three counts
     from_api = _points(api.events_geojson(view["since"], hazard=view.get("hazard"), min_severity=view.get("min_severity", 0.0), limit=0, conn=conn))
     response = client.get("/events.geojson", params={**view, "limit": 0})
     response.raise_for_status()
     from_http = _points(response.json())
-    from_export = export_count(db_path, view)
+    from_export = export_count(conn, view)
     agree = from_api == from_http == from_export
     if not agree or (map_count is not None and map_count != from_api):
         verdict = FAIL
@@ -146,8 +150,13 @@ def sample_pin(client, network: bool = True) -> dict:
     response = client.get("/forecast", params={"lat": lat, "lon": lon})
     elapsed = round(time.monotonic() - started, 3)
     if response.status_code != 200:
-        # A 502 is Open-Meteo or the network being unreachable: recorded, not a verdict on the frontend.
-        return {**result, "forecast": {"ok": False, "skipped": True, "error": f"HTTP {response.status_code}: {response.json().get('detail', '')}"[:200]}}
+        try:
+            detail = response.json().get("detail", "")
+        except ValueError:
+            detail = response.text
+        # Only a 502 (Open-Meteo or the network unreachable) is skipped; any other status is a real failure.
+        skipped = response.status_code == 502
+        return {**result, "forecast": {"ok": False, "skipped": skipped, "seconds": elapsed, "days": 0, "error": f"HTTP {response.status_code}: {detail}"[:200]}}
     body = response.json()
     days = len(body.get("daily") or [])
     ok = elapsed <= config.FRONTEND_FORECAST_S and days == config.OPEN_METEO_FORECAST_DAYS
@@ -162,8 +171,10 @@ def read_audit(web_dir: Path) -> dict | None:
         return None
     try:
         audit = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         return {"error": f"audit.json is not JSON: {exc}", "passed": False}
+    if not isinstance(audit, dict):
+        return {"error": "audit.json is not a JSON object", "passed": False}
     serious = audit.get("serious")
     return {**audit, "passed": serious == 0 and audit.get("checked_at_375px") is True}
 
@@ -175,9 +186,10 @@ def changed_python(base: str, root: Path | None = None) -> list[str] | str:
     try:
         merge_base = subprocess.run(["git", "merge-base", base, "HEAD"], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
         out = subprocess.run(["git", "diff", "--name-only", merge_base, "--", "*.py"], cwd=root, capture_output=True, text=True, check=True).stdout
+        out += subprocess.run(["git", "ls-files", "--others", "--exclude-standard", "--", "*.py"], cwd=root, capture_output=True, text=True, check=True).stdout
     except (OSError, subprocess.CalledProcessError) as exc:
         return f"git could not compare with {base}: {getattr(exc, 'stderr', '') or exc}".strip()[:200]
-    return sorted(line.strip() for line in out.splitlines() if line.strip())
+    return sorted({line.strip() for line in out.splitlines() if line.strip()})
 
 
 def outside_scope(files: list[str]) -> list[str]:
@@ -212,7 +224,7 @@ def frontend_report(
         "generated_at": to_iso(now or now_utc()),
         "database": str(db_path or config.DB_PATH),
         "build": build_check(web_dir, build),
-        "parity": [parity(conn, client, db_path, name, view, count) for (name, view), count in zip(views(), map_counts)],
+        "parity": [parity(conn, client, name, view, count) for (name, view), count in zip(views(), map_counts)],
         "pin": sample_pin(client, network),
         "audit": read_audit(web_dir),
         "base": base,
@@ -220,6 +232,11 @@ def frontend_report(
         "outside": outside_scope(changed) if isinstance(changed, list) else None,
     }
 
+
+
+def _cell(text: str) -> str:
+    """Escape a value for a Markdown table cell."""
+    return text.replace("|", "\\|")
 
 
 def _kb(n: int) -> str:
@@ -240,6 +257,8 @@ def _build_row(build: dict) -> tuple[str, str, str, str]:
 def _parity_row(row: dict) -> tuple[str, str, str, str]:
     map_count = "check by hand" if row["map"] is None else str(row["map"])
     measured = f"events_geojson {row['events_geojson']}, export {row['export']}, API {row['http']}, map {map_count}"
+    if row["events_geojson"] == 0:
+        measured += " (view is empty, so equal counts prove little)"
     return (f"Pin parity: {row['name']}", measured, "all equal", row["verdict"])
 
 
@@ -250,7 +269,7 @@ def _pin_rows(pin: dict) -> list[tuple[str, str, str, str]]:
     measured = f"News {pin['news']}, Posts {pin['posts']} from /events/{{id}}/documents"
     if pin["news"] + pin["posts"] == 0:
         measured += " (no pin in the default view has documents; the tabs should say so)"
-    rows = [(f"Sample pin: {event['title']} (`{event['event_id']}`)", measured, "the tabs list the same", BY_HAND)]
+    rows = [(f"Sample pin: {_cell(event['title'])} (`{event['event_id']}`)", measured, "the tabs list the same", BY_HAND)]
     forecast = pin["forecast"]
     target = f"<= {config.FRONTEND_FORECAST_S:g} s, {config.OPEN_METEO_FORECAST_DAYS} days"
     criterion = f"/forecast at the pin ({event['lat']:.2f}, {event['lon']:.2f})"
