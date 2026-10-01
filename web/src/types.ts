@@ -44,7 +44,8 @@ export interface Heartbeat {
   missed_runs_7d: number
   expected_runs_7d: number
   generated_at: string
-  pipeline_stale?: boolean
+  /** True when collection is behind (the rule lives in eww.api); the strip turns red on it. */
+  pipeline_stale: boolean
 }
 
 export interface EventCollection {
