@@ -1,7 +1,7 @@
 // The side panel for the selected event: Details, News, Posts and Weather tabs (WAI-ARIA tabs pattern).
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fetchDocuments, fetchForecast } from './api'
-import { formatDay, formatWhen, hazardName, measure, plural } from './format'
+import { formatDay, formatWhen, hazardName, measure } from './format'
 import HazardSymbol from './HazardSymbol'
 import type { DocumentItem, EventFeature, Forecast } from './types'
 import { useResource, type Resource } from './useResource'
@@ -179,7 +179,7 @@ function DocumentList({ resource, kinds, empty }: { resource: Resource<DocumentI
             </a>
             <p className="hint">
               {who} · {formatWhen(item.published_at)}
-              {item.copies > 1 ? ` · ${plural(item.copies, 'copy')} from ${item.publishers.join(', ') || 'one source'}` : null}
+              {item.copies > 1 ? ` · ${item.copies} copies from ${item.publishers.join(', ') || 'one source'}` : null}
             </p>
             <Media item={item} />
           </li>
