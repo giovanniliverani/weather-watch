@@ -677,6 +677,32 @@ def report_social(
         typer.echo(f"weather probe failed: {probe['error']}")
 
 
+@report_app.command("frontend")
+def report_frontend(
+    map_count_default: Optional[int] = typer.Option(None, "--map-count-default", help="Pins you counted on the React map in the default view."),
+    map_count_flood: Optional[int] = typer.Option(None, "--map-count-flood", help="Pins you counted with flood, 7 days, severity >= 0.66."),
+    build: bool = typer.Option(False, "--build", help="Run `npm run build` in web/ first and time it."),
+    network: bool = typer.Option(True, "--network/--no-network", help="Time one live /forecast call (Open-Meteo)."),
+    base: str = typer.Option(config.FRONTEND_DIFF_BASE, "--base", help="Git ref the Python changes are compared with."),
+    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m7.md (the milestone record)."),
+) -> None:
+    """Write the M7 frontend report: build and bundle size, pin parity, one sample pin, the audit, the Python scope."""
+    from eww import frontend_report
+
+    try:
+        db.require_current_schema(_state["db"])  # read-only like eww serve: the report never migrates
+        conn = db.connect_readonly(_state["db"])
+        path, result = frontend_report.write_frontend_report(
+            conn, _state["db"], out, map_counts=(map_count_default, map_count_flood), build=build, network=network, base=base
+        )
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"written {path}")
+    for line in frontend_report.summary_lines(result):
+        typer.echo(f"  {line}")
+
+
 @report_app.command("identity")
 def report_identity(
     days: int = typer.Option(30, "--days", help="Window for the event counts and the feed-disagreement table."),

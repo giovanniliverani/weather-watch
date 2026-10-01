@@ -65,6 +65,16 @@ SERVE_PORT = 8000
 SERVE_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # the Vite dev server in web/
 SERVE_ALLOWED_HOSTS = ["127.0.0.1", "localhost"]  # Host headers answered; others get 400, which stops DNS rebinding
 
+# --------------------------------------------------------------------------- `eww report frontend` (M7 exit criteria)
+WEB_DIR = PROJECT_ROOT / "web"  # the React app; `npm run build` writes web/dist
+WEB_DEV_URL = "http://localhost:5173/"
+FRONTEND_FIRST_LOAD_JS_KB = 600  # gzipped JavaScript on first load, map library included
+FRONTEND_FORECAST_S = 3.0  # the Weather tab's forecast must arrive within this
+FRONTEND_PARITY_FLOOD = {"since": "7d", "hazard": "flood", "min_severity": 0.66}  # the second parity view
+FRONTEND_DIFF_BASE = "origin/main"
+# Python files M7 may change; anything else in the diff is flagged (tests/ is always allowed).
+FRONTEND_PYTHON_SCOPE = ["eww/serve.py", "eww/api.py", "eww/db.py", "eww/cli.py", "eww/config.py", "eww/frontend_report.py"]
+
 # --------------------------------------------------------------------------- spine, data branch, heartbeat
 SPINE_SOURCES = ["gdacs", "eonet", "copernicus"]  # `eww collect --all-spine`, what GitHub Actions runs
 DATA_BRANCH = "data"  # orphan branch holding snapshots/ and runs/, written by .github/workflows/collect.yml
@@ -395,7 +405,7 @@ REVIEW_RECENT_MERGES = 50  # rows in the Review tab's merge list
 # Each is written (and rewritten) by the command that measures that milestone, so the numbers in it are
 # always measured rather than remembered: `eww report density` -> m0, `eww report volume` -> m1,
 # `eww report identity` -> m2, `eww eval attachments` -> m3, `eww eval extraction` -> m4,
-# `eww report social` -> m5. A new report writer inherits the rule by
+# `eww report social` -> m5, `eww report frontend` -> m7. A new report writer inherits the rule by
 # calling milestone_doc() instead of naming a file.
 
 
