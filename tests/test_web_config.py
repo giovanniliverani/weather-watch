@@ -24,8 +24,10 @@ def test_every_basemap_credit_is_an_attribution_entry(conn):
     credits = {name: text for name, _, text in re.findall(r"^const (\w+_CREDIT) = (['\"])(.*)\2$", CONFIG_TS, re.M)}
     assert {"OPENFREEMAP_CREDIT", "GIBS_CREDIT", "ESRI_CREDIT"} <= set(credits)
     # Every basemap's credit line is built from those constants, so checking them covers the menu.
-    for line in re.findall(r"^\s*attribution: (.+),$", CONFIG_TS, re.M):
-        assert re.search(r"\w+_CREDIT", line), line
+    values = [v.strip() for v in re.findall(r"\battribution: (`[^`\n]*`|[^,}\n]+)", CONFIG_TS) if not v.startswith("string")]  # skip the type
+    assert len(values) >= 7, values  # five OpenFreeMap styles, Esri, GIBS
+    for value in values:
+        assert re.fullmatch(r"\w+_CREDIT|`[^`]*\$\{\w+_CREDIT\}`", value), value
     attributions = [entry["attribution"] for entry in api.attributions(conn=conn)]
     for name, text in credits.items():
         assert text in attributions, name
