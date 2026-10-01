@@ -180,6 +180,14 @@ def test_a_file_that_is_not_a_database_is_refused(tmp_path):
     assert result.exit_code == 1 and "Traceback" not in result.output
 
 
+def test_newer_schema_starts_with_a_warning(conn, tmp_path, caplog):
+    conn.execute("UPDATE schema_version SET version = ?", (db.SCHEMA_VERSION + 1,))
+    conn.commit()
+    with caplog.at_level("WARNING", logger="eww.db"):
+        create_app(tmp_path / "test.sqlite")
+    assert f"at schema {db.SCHEMA_VERSION + 1}, newer than this code's {db.SCHEMA_VERSION}" in caplog.text
+
+
 def test_missing_database_is_refused(tmp_path):
     with pytest.raises(RuntimeError, match="no database at"):
         create_app(tmp_path / "absent.sqlite")

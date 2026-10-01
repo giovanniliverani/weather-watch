@@ -68,6 +68,8 @@ def require_current_schema(path: str | Path | None = None) -> None:
         raise RuntimeError(f"cannot read {db_path} as an eww database ({exc}): check the --db path, or run `uv run eww init-db`") from exc
     if version is None or version < SCHEMA_VERSION:
         raise RuntimeError(f"{db_path} is at schema {version or 0}, this code needs {SCHEMA_VERSION}: run `uv run eww init-db` (or `uv run eww sync`) first")
+    if version > SCHEMA_VERSION:  # another branch migrated it; migrations are additive, so read on
+        log.warning("%s is at schema %s, newer than this code's %s: reading it anyway", db_path, version, SCHEMA_VERSION)
 
 
 def schema_applied(conn: sqlite3.Connection) -> bool:
