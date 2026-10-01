@@ -42,7 +42,7 @@ setWorkerUrl(workerUrl)
 const SYMBOL_PX = (22 * BOX) / 24
 /** Fonts for the cluster counts; OpenFreeMap serves Noto Sans Regular, also to raster-only styles. */
 const GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf'
-/** Cluster discs, counts, the selection ring and footprints, per basemap ground. */
+/** Cluster discs, counts, the selection ring and footprints, per basemap ground (index.css --raise and --surface; keep in step). */
 const CHROME: Record<Ground, { ink: string; disc: string }> = {
   dark: { ink: MARK_INK.dark, disc: '#212121' },
   light: { ink: MARK_INK.light, disc: '#ffffff' },

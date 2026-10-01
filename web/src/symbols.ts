@@ -67,7 +67,7 @@ export const hazardStyle = (hazard: string): HazardStyle => HAZARDS[hazard] ?? H
 
 /** Glyph ink on a filled disc (dark on every hazard colour, at least 5:1). */
 export const SYMBOL_INK = '#101317'
-/** The hollow (ended) disc's centre: the ground it sits on. */
+/** The hollow (ended) disc's centre: near-black on a dark ground, white on a light one. */
 export const HOLLOW_FILL: Record<Ground, string> = { dark: '#101317', light: '#ffffff' }
 export const GLYPH_STROKE = 1.9
 
@@ -75,7 +75,7 @@ export const GLYPH_STROKE = 1.9
  *  as given; any other label (Green, an EONET acreage, none) gets no mark. */
 export type SeverityMark = 'none' | 'orange' | 'red'
 export const severityMark = (label: string | null): SeverityMark => (label === 'Red' ? 'red' : label === 'Orange' ? 'orange' : 'none')
-/** The rings' ink: the map's or the page's text colour on that ground. */
+/** The rings' ink: the text colour on that ground (index.css --text per theme; keep the two in step). */
 export const MARK_INK: Record<Ground, string> = { dark: '#e8e8e8', light: '#1b1b1b' }
 /** A symbol sits in a 32-unit box: the 24-unit disc and glyph in the middle, the severity rings around it. */
 export const BOX = 32
