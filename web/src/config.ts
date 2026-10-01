@@ -11,6 +11,37 @@ export type Basemap =
 
 const OPENFREEMAP_CREDIT = 'OpenFreeMap © OpenMapTiles Data from OpenStreetMap'
 
+/** NASA GIBS shows the latest complete UTC day, not today's partial one: yesterday in UTC, as YYYY-MM-DD. */
+const GIBS_DAY = new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 10)
+const GIBS_DAY_LABEL = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${GIBS_DAY}T00:00:00Z`))
+/** NASA GIBS daily true colour (NOAA-20 VIIRS), EPSG:3857 WMTS; its tile matrix set stops at zoom 9. No key. */
+const GIBS_TODAY: Basemap = {
+  id: 'today',
+  name: 'Today from space',
+  kind: 'raster',
+  tiles: [`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/${GIBS_DAY}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`],
+  tileSize: 256,
+  maxzoom: 9,
+  attribution: `NASA GIBS, VIIRS NOAA-20 true colour, ${GIBS_DAY_LABEL} UTC. We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS).`,
+  ground: 'dark',
+}
+
+/** Esri World Imagery through ArcGIS Location Platform; offered only when web/.env.local sets VITE_ESRI_API_KEY.
+ *  The key ends up in the built JavaScript, so restrict it to this site's address in the Esri dashboard. */
+const ESRI_API_KEY: string | undefined = import.meta.env.VITE_ESRI_API_KEY || undefined
+const ESRI_SATELLITE: Basemap | null = ESRI_API_KEY
+  ? {
+      id: 'satellite',
+      name: 'Satellite',
+      kind: 'raster',
+      tiles: [`https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=${encodeURIComponent(ESRI_API_KEY)}`],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: 'Powered by Esri. Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community',
+      ground: 'dark',
+    }
+  : null
+
 /** The basemaps on offer, in menu order. Adding one is one entry here. */
 export const BASEMAPS: Basemap[] = [
   { id: 'dark', name: 'Dark', kind: 'style', url: 'https://tiles.openfreemap.org/styles/dark', attribution: OPENFREEMAP_CREDIT, ground: 'dark' },
@@ -18,6 +49,8 @@ export const BASEMAPS: Basemap[] = [
   { id: 'liberty', name: 'Liberty', kind: 'style', url: 'https://tiles.openfreemap.org/styles/liberty', attribution: OPENFREEMAP_CREDIT, ground: 'light' },
   { id: 'bright', name: 'Bright', kind: 'style', url: 'https://tiles.openfreemap.org/styles/bright', attribution: OPENFREEMAP_CREDIT, ground: 'light' },
   { id: 'fiord', name: 'Fiord', kind: 'style', url: 'https://tiles.openfreemap.org/styles/fiord', attribution: OPENFREEMAP_CREDIT, ground: 'dark' },
+  ...(ESRI_SATELLITE ? [ESRI_SATELLITE] : []),
+  GIBS_TODAY,
 ]
 
 /** "Auto" follows the page theme with these two. */

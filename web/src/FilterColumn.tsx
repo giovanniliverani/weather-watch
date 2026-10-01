@@ -212,7 +212,7 @@ export default function FilterColumn(props: Props) {
           </label>
           <div className="select-wrap">
             <select id={basemapId} className="select" value={basemapChoice} onChange={(e) => onBasemap(e.target.value)}>
-              <option value="auto">Auto ({BASEMAPS.find((b) => b.id === AUTO_BASEMAP[theme])?.name}, follows the theme)</option>
+              <option value="auto">Auto ({BASEMAPS.find((b) => b.id === AUTO_BASEMAP[theme])?.name})</option>
               {BASEMAPS.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}

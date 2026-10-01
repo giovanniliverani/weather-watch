@@ -43,9 +43,9 @@ const SYMBOL_PX = (22 * BOX) / 24
 /** Fonts for the cluster counts; OpenFreeMap serves Noto Sans Regular, also to raster-only styles. */
 const GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf'
 /** Cluster discs, counts, the selection ring and footprints, per basemap ground (index.css --raise and --surface; keep in step). */
-const CHROME: Record<Ground, { ink: string; disc: string }> = {
-  dark: { ink: MARK_INK.dark, disc: '#212121' },
-  light: { ink: MARK_INK.light, disc: '#ffffff' },
+const CHROME: Record<Ground, { ink: string; disc: string; accent: string }> = {
+  dark: { ink: MARK_INK.dark, disc: '#212121', accent: '#8ab4ff' },
+  light: { ink: MARK_INK.light, disc: '#ffffff', accent: '#2357c6' },
 }
 
 /** A basemap as something MapLibre can load: a style URL, or a one-layer style around raster tiles. */
@@ -75,7 +75,7 @@ const collection = <F,>(features: F[]) => ({ type: 'FeatureCollection' as const,
 
 /** Add the event layers on top of whatever basemap style is loaded; runs again after every style switch. */
 function addLayers(map: MapLibreMap, ground: Ground) {
-  const { ink, disc } = CHROME[ground]
+  const { ink, disc, accent } = CHROME[ground]
   map.addSource('footprints', { type: 'geojson', data: collection([]) })
   map.addLayer({
     id: 'footprint-fill',
@@ -118,8 +118,9 @@ function addLayers(map: MapLibreMap, ground: Ground) {
     type: 'circle',
     source: 'events',
     filter: ['==', ['get', 'event_id'], ''],
-    // Outside the widest severity ring, so a selected Red event still reads as selected.
-    paint: { 'circle-opacity': 0, 'circle-radius': 18, 'circle-stroke-color': ink, 'circle-stroke-width': 2.5 },
+    // In the accent colour (the page's "selected" colour) and clear of the severity rings, so selection never reads
+    // as one more severity ring.
+    paint: { 'circle-opacity': 0, 'circle-radius': 19.5, 'circle-stroke-color': accent, 'circle-stroke-width': 3 },
   })
   map.addLayer({
     id: 'event-points',
