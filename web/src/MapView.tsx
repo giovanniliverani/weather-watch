@@ -1,4 +1,4 @@
-﻿// The MapLibre map. Loaded lazily (React.lazy in App) so the page shell paints before the map library arrives.
+// The MapLibre map. Loaded lazily (React.lazy in App) so the page shell paints before the map library arrives.
 import {
   GeolocateControl,
   LngLatBounds,

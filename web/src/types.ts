@@ -1,4 +1,4 @@
-﻿// The shapes `eww serve` returns (docs/architecture.md section 2). The frontend reads them and never derives data.
+// The shapes `eww serve` returns (docs/architecture.md section 2). The frontend reads them and never derives data.
 import type { Geometry } from 'geojson'
 
 export interface EventProperties {

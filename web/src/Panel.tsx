@@ -1,4 +1,4 @@
-﻿// The side panel for the selected event: Details, News, Posts and Weather tabs (WAI-ARIA tabs pattern).
+// The side panel for the selected event: Details, News, Posts and Weather tabs (WAI-ARIA tabs pattern).
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fetchDocuments, fetchForecast } from './api'
 import { formatDay, formatWhen, hazardName, measure, plural } from './format'
@@ -44,7 +44,7 @@ export default function Panel({ event, onClose }: Props) {
       <header className="panel-head">
         <h2 id={`${baseId}-title`}>{p.title}</h2>
         <button type="button" className="close" onClick={onClose} aria-label="Close event">
-          Ã—
+          ×
         </button>
       </header>
       <div role="tablist" aria-label="Event information" className="tabs">
@@ -152,7 +152,7 @@ function Media({ item }: { item: DocumentItem }) {
 }
 
 function DocumentList({ resource, kinds, empty }: { resource: Resource<DocumentItem[]>; kinds: DocumentItem['kind'][]; empty: string }) {
-  if (resource.state === 'loading' || resource.state === 'idle') return <p className="hint">Loadingâ€¦</p>
+  if (resource.state === 'loading' || resource.state === 'idle') return <p className="hint">Loading…</p>
   if (resource.state === 'error') return <p className="error">Could not load documents: {resource.error.message}</p>
   // Splitting by kind into the two tabs is presentation, as in app.py.
   const items = resource.data.filter((item) => kinds.includes(item.kind))
@@ -168,8 +168,8 @@ function DocumentList({ resource, kinds, empty }: { resource: Resource<DocumentI
               {text ?? item.url}
             </a>
             <p className="hint">
-              {who} Â· {formatWhen(item.published_at)}
-              {item.copies > 1 ? ` Â· ${plural(item.copies, 'copy')} from ${item.publishers.join(', ') || 'one source'}` : null}
+              {who} · {formatWhen(item.published_at)}
+              {item.copies > 1 ? ` · ${plural(item.copies, 'copy')} from ${item.publishers.join(', ') || 'one source'}` : null}
             </p>
             <Media item={item} />
           </li>
@@ -180,7 +180,7 @@ function DocumentList({ resource, kinds, empty }: { resource: Resource<DocumentI
 }
 
 function Weather({ resource }: { resource: Resource<Forecast> }) {
-  if (resource.state === 'loading' || resource.state === 'idle') return <p className="hint">Loading the forecastâ€¦</p>
+  if (resource.state === 'loading' || resource.state === 'idle') return <p className="hint">Loading the forecast…</p>
   if (resource.state === 'error') {
     return <p className="error">{resource.error.message.startsWith('Open-Meteo') ? 'Open-Meteo did not answer. Try again in a minute.' : resource.error.message}</p>
   }
@@ -188,11 +188,11 @@ function Weather({ resource }: { resource: Resource<Forecast> }) {
   return (
     <>
       <p className="now">
-        <span className="temp">{measure(current.temperature_c, 'Â°C')}</span> {current.conditions}
+        <span className="temp">{measure(current.temperature_c, '°C')}</span> {current.conditions}
       </p>
       <p className="hint">
-        Precipitation {measure(current.precipitation_mm, 'mm')} Â· wind {measure(current.wind_kmh, 'km/h')}
-        {current.observed_at ? ` Â· observed ${current.observed_at.replace('T', ' ')} local time` : null}
+        Precipitation {measure(current.precipitation_mm, 'mm')} · wind {measure(current.wind_kmh, 'km/h')}
+        {current.observed_at ? ` · observed ${current.observed_at.replace('T', ' ')} local time` : null}
       </p>
       <table className="forecast">
         <caption>Next {daily.length} days</caption>
@@ -210,8 +210,8 @@ function Weather({ resource }: { resource: Resource<Forecast> }) {
             <tr key={day.date}>
               <th scope="row">{formatDay(day.date)}</th>
               <td>{day.conditions}</td>
-              <td>{measure(day.high_c, 'Â°C')}</td>
-              <td>{measure(day.low_c, 'Â°C')}</td>
+              <td>{measure(day.high_c, '°C')}</td>
+              <td>{measure(day.low_c, '°C')}</td>
               <td>{measure(day.precipitation_mm, 'mm')}</td>
             </tr>
           ))}
