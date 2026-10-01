@@ -15,6 +15,12 @@ import { useResource } from './useResource'
 
 const MapView = lazy(() => import('./MapView'))
 const hazardCache = new Map<string, string[]>()
+
+/** How many event selections deep the current history entry is (0 when it was not pushed by a selection). */
+const selectionDepth = (): number => {
+  const depth = (window.history.state as { ewwDepth?: unknown } | null)?.ewwDepth
+  return typeof depth === 'number' && depth > 0 ? depth : 0
+}
 const severityStepCache = new Map<string, SeverityStep[]>()
 
 /** 'auto' or a BASEMAPS id; anything else saved earlier falls back to 'auto'. */
@@ -32,6 +38,8 @@ export default function App() {
   // Mirror the view into the address bar, so a reload restores it. Selecting an event adds a history entry, so Back
   // (or a phone's back gesture) closes the panel or returns to the previous event; filters and map moves replace the
   // entry, so the history stays short. A view that came from Back itself, or from the opening link, adds nothing.
+  // Each pushed entry records how many selections deep it is (ewwDepth), so closing the panel can step back to where
+  // it opened instead of leaving a dead Back step.
   const shownEventId = useRef(view.eventId)
   const fromHistory = useRef(false)
   useEffect(() => {
@@ -40,13 +48,15 @@ export default function App() {
     const newSelection = view.eventId !== null && view.eventId !== shownEventId.current && !fromHistory.current
     shownEventId.current = view.eventId
     fromHistory.current = false
-    if (newSelection) window.history.pushState(null, '', url)
-    else if (query !== window.location.search) window.history.replaceState(null, '', url)
+    if (newSelection) window.history.pushState({ ewwDepth: selectionDepth() + 1 }, '', url)
+    else if (query !== window.location.search) window.history.replaceState(window.history.state, '', url)
   }, [view])
   useEffect(() => {
+    // Back changes the selection and the page only: the filters and the map position stay as they are now.
     const onPop = () => {
       fromHistory.current = true
-      setView(readViewState(window.location.search))
+      const popped = readViewState(window.location.search)
+      setView((v) => ({ ...v, eventId: popped.eventId, page: popped.page }))
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -115,7 +125,10 @@ export default function App() {
   const closePanel = useCallback(
     (eventId: string) => {
       returnFocusTo.current = document.activeElement?.closest('.panel') ? eventId : null
-      select(null)
+      // Step back past the selections this panel's history holds; the popped entry then clears the selection.
+      const depth = selectionDepth()
+      if (depth > 0) window.history.go(-depth)
+      else select(null)
     },
     [select],
   )
