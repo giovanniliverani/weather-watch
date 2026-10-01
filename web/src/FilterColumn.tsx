@@ -30,12 +30,15 @@ interface Props {
   onSelect: (eventId: string) => void
   onTheme: (theme: Theme) => void
   onBasemap: (choice: string) => void
+  /** Ask the API again after a failed request. */
+  onRetry: () => void
   onAbout: () => void
 }
 
-/** An empty hazard list means every hazard; the API reads it the same way. */
+/** An empty hazard list means every hazard; the API reads it the same way. Only hazards the API lists count. */
 function toggleHazard(all: string[], chosen: string[], hazard: string): string[] {
-  const current = chosen.length ? chosen : all
+  const known = chosen.filter((h) => all.includes(h))
+  const current = known.length ? known : all
   const next = current.includes(hazard) ? current.filter((h) => h !== hazard) : [...current, hazard]
   if (next.length === 0 || next.length === all.length) return []
   return next.sort()
@@ -43,7 +46,7 @@ function toggleHazard(all: string[], chosen: string[], hazard: string): string[]
 
 export default function FilterColumn(props: Props) {
   const { filters, hazards, meta, points, counts, loading, error, selectedId, theme, basemapChoice, basemap } = props
-  const { onChange, onSelect, onTheme, onBasemap, onAbout } = props
+  const { onChange, onSelect, onTheme, onBasemap, onRetry, onAbout } = props
   const basemapId = useId()
   const [open, setOpen] = useState(false)
   const [listOpen, setListOpen] = useState(false)
@@ -117,7 +120,14 @@ export default function FilterColumn(props: Props) {
 
         <fieldset className="group">
           <legend>Hazards</legend>
-          {hazards.state === 'error' ? <p className="error">The hazard list did not load: {hazards.error.message}</p> : null}
+          {hazards.state === 'error' ? (
+            <p className="error">
+              The hazard list did not load: {hazards.error.message}{' '}
+              <button type="button" className="link" onClick={onRetry}>
+                Try again
+              </button>
+            </p>
+          ) : null}
           <ul className="legend">
             {all.map((hazard) => {
               const shown = filters.hazards.length === 0 || filters.hazards.includes(hazard)
@@ -200,7 +210,10 @@ export default function FilterColumn(props: Props) {
 
         {error ? (
           <p className="error" role="alert">
-            {error.message}
+            {error.message}{' '}
+            <button type="button" className="link" onClick={onRetry}>
+              Try again
+            </button>
           </p>
         ) : (
           <button type="button" className="list-toggle" aria-expanded={listOpen} aria-controls={listId} onClick={() => setListOpen(!listOpen)}>

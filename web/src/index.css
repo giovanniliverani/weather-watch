@@ -126,14 +126,34 @@ button {
   height: 100dvh;
 }
 
-.map {
+.map-area {
   grid-area: map;
+  position: relative;
   min-width: 0;
   min-height: 0;
+}
+
+.map {
+  width: 100%;
+  height: 100%;
   background: var(--ground);
 }
 
+.map-note {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  right: 4rem;
+  max-width: 42ch;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.87rem;
+}
+
 .map-loading {
+  grid-area: map;
   display: grid;
   place-items: center;
   color: var(--muted);

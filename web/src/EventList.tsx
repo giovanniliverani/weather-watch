@@ -17,7 +17,12 @@ function EventList({ points, selectedId, onSelect }: Props) {
     <ul className="event-list" aria-label="Events shown on the map">
       {points.map(({ properties: p }) => (
         <li key={p.event_id}>
-          <button type="button" aria-current={p.event_id === selectedId ? 'true' : undefined} onClick={() => onSelect(p.event_id)}>
+          <button
+            type="button"
+            data-event-id={p.event_id}
+            aria-current={p.event_id === selectedId ? 'true' : undefined}
+            onClick={() => onSelect(p.event_id)}
+          >
             <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} mark={severityMark(p.severity_label)} size={16} />
             <span className="event-title">{p.title}</span>
             <span className="event-meta">

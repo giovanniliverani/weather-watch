@@ -36,8 +36,11 @@ export default function Panel({ event, onClose }: Props) {
     if (document.activeElement?.closest('.event-list')) heading.current?.focus()
   }, [p.event_id])
 
-  const documents = useResource(p.event_id, (signal) => fetchDocuments(p.event_id, signal), documentCache)
-  const forecastKey = `${lat.toFixed(4)},${lon.toFixed(4)}`
+  // A new attempt number makes a new request key, which is how "Try again" asks the API once more.
+  const [attempt, setAttempt] = useState(0)
+  const retry = () => setAttempt((n) => n + 1)
+  const documents = useResource(`${p.event_id}#${attempt}`, (signal) => fetchDocuments(p.event_id, signal), documentCache)
+  const forecastKey = `${lat.toFixed(4)},${lon.toFixed(4)}#${attempt}`
   const forecast = useResource(weatherWantedFor === p.event_id || tab === 'Weather' ? forecastKey : null, (signal) => fetchForecast(lat, lon, signal), forecastCache)
 
   function onTabKey(e: KeyboardEvent, index: number) {
@@ -96,7 +99,7 @@ export default function Panel({ event, onClose }: Props) {
               role="tab"
               id={`${baseId}-tab-${name}`}
               aria-selected={tab === name}
-              aria-controls={`${baseId}-panel-${name}`}
+              aria-controls={tab === name ? `${baseId}-panel-${name}` : undefined}
               tabIndex={tab === name ? 0 : -1}
               onClick={() => setTab(name)}
               onKeyDown={(e) => onTabKey(e, index)}
@@ -111,9 +114,13 @@ export default function Panel({ event, onClose }: Props) {
         </div>
         <div role="tabpanel" id={`${baseId}-panel-${tab}`} aria-labelledby={`${baseId}-tab-${tab}`} tabIndex={0} className="tab-body">
           {tab === 'Details' ? <Details event={event} /> : null}
-          {tab === 'News' ? <DocumentList resource={documents} kinds={['article', 'report']} empty="No articles or reports attached to this event yet." /> : null}
-          {tab === 'Posts' ? <DocumentList resource={documents} kinds={['post', 'video']} empty="No posts, photos or videos attached to this event yet." /> : null}
-          {tab === 'Weather' ? <Weather resource={forecast} /> : null}
+          {tab === 'News' ? (
+            <DocumentList resource={documents} kinds={['article', 'report']} empty="No articles or reports attached to this event yet." onRetry={retry} />
+          ) : null}
+          {tab === 'Posts' ? (
+            <DocumentList resource={documents} kinds={['post', 'video']} empty="No posts, photos or videos attached to this event yet." onRetry={retry} />
+          ) : null}
+          {tab === 'Weather' ? <Weather resource={forecast} onRetry={retry} /> : null}
         </div>
       </div>
     </aside>
@@ -190,9 +197,30 @@ function Media({ item }: { item: DocumentItem }) {
   )
 }
 
-function DocumentList({ resource, kinds, empty }: { resource: Resource<DocumentItem[]>; kinds: DocumentItem['kind'][]; empty: string }) {
+function TryAgain({ onRetry }: { onRetry: () => void }) {
+  return (
+    <button type="button" className="link" onClick={onRetry}>
+      Try again
+    </button>
+  )
+}
+
+interface DocumentListProps {
+  resource: Resource<DocumentItem[]>
+  kinds: DocumentItem['kind'][]
+  empty: string
+  onRetry: () => void
+}
+
+function DocumentList({ resource, kinds, empty, onRetry }: DocumentListProps) {
   if (resource.state === 'loading' || resource.state === 'idle') return <p className="hint">Loading…</p>
-  if (resource.state === 'error') return <p className="error">Could not load documents: {resource.error.message}</p>
+  if (resource.state === 'error') {
+    return (
+      <p className="error">
+        Could not load documents: {resource.error.message} <TryAgain onRetry={onRetry} />
+      </p>
+    )
+  }
   // Splitting by kind into the two tabs is presentation, as in app.py.
   const items = resource.data.filter((item) => kinds.includes(item.kind))
   if (items.length === 0) return <p className="hint">{empty}</p>
@@ -218,10 +246,14 @@ function DocumentList({ resource, kinds, empty }: { resource: Resource<DocumentI
   )
 }
 
-function Weather({ resource }: { resource: Resource<Forecast> }) {
+function Weather({ resource, onRetry }: { resource: Resource<Forecast>; onRetry: () => void }) {
   if (resource.state === 'loading' || resource.state === 'idle') return <p className="hint">Loading the forecast…</p>
   if (resource.state === 'error') {
-    return <p className="error">{resource.error.message.startsWith('Open-Meteo') ? 'Open-Meteo did not answer. Try again in a minute.' : resource.error.message}</p>
+    return (
+      <p className="error">
+        {resource.error.message.startsWith('Open-Meteo') ? 'Open-Meteo did not answer.' : resource.error.message} <TryAgain onRetry={onRetry} />
+      </p>
+    )
   }
   const { current, daily, attribution } = resource.data
   return (

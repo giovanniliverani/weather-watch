@@ -1,7 +1,7 @@
 // The page: filters and the events list on the left, the map in the middle, the selected event's panel on the right.
 // View state (filters, selected event, map position, page) is mirrored into the URL query; viewer preferences
 // (theme, basemap) are kept per browser instead (theme.ts).
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import About from './About'
 import { eventsQuery, fetchEvents, fetchHazards } from './api'
 import { AUTO_BASEMAP, BASEMAPS } from './config'
@@ -28,7 +28,8 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(readTheme)
   const [basemapChoice, setBasemapChoice] = useState<string>(readBasemapChoice)
 
-  // Mirror the view into the address bar; Back and Forward restore it.
+  // Mirror the view into the address bar, replacing the entry: a reload restores the view, and Back returns from
+  // the About page but does not step through filter changes.
   useEffect(() => {
     const query = writeViewState(view)
     if (query !== window.location.search) window.history.replaceState(null, '', `${window.location.pathname}${query}`)
@@ -48,9 +49,22 @@ export default function App() {
   const basemapId = basemapChoice === 'auto' ? AUTO_BASEMAP[theme] : basemapChoice
   const basemap = BASEMAPS.find((b) => b.id === basemapId) ?? BASEMAPS[0]
 
-  const hazards = useResource('all', fetchHazards, hazardCache)
-  const events = useResource(eventsQuery(view.filters), (signal) => fetchEvents(view.filters, signal))
+  // "Try again" after the API was down: a new attempt number is a new request key, so both are asked again.
+  const [attempt, setAttempt] = useState(0)
+  const retry = useCallback(() => setAttempt((n) => n + 1), [])
+  const hazards = useResource(`all#${attempt}`, fetchHazards, hazardCache)
+  const events = useResource(`${eventsQuery(view.filters)}#${attempt}`, (signal) => fetchEvents(view.filters, signal))
   const collection = events.state === 'ready' ? events.data : events.state === 'loading' ? events.previous : undefined
+
+  // A link may name a hazard the API no longer lists (renamed, or a typo); drop it once the list is known.
+  const knownHazards = hazards.state === 'ready' ? hazards.data : null
+  useEffect(() => {
+    if (!knownHazards) return
+    setView((v) => {
+      const kept = v.filters.hazards.filter((h) => knownHazards.includes(h))
+      return kept.length === v.filters.hazards.length ? v : { ...v, filters: { ...v.filters, hazards: kept } }
+    })
+  }, [knownHazards])
 
   const { points, footprints, byId, counts } = useMemo(() => {
     const points: EventFeature[] = []
@@ -82,6 +96,24 @@ export default function App() {
     },
     [byId, select],
   )
+  // Closing the panel from inside it puts focus back where the user was: the event's list row, else the list
+  // button. The focus moves in an effect, after the panel has gone from the page.
+  const returnFocusTo = useRef<string | null>(null)
+  const closePanel = useCallback(
+    (eventId: string) => {
+      returnFocusTo.current = document.activeElement?.closest('.panel') ? eventId : null
+      select(null)
+    },
+    [select],
+  )
+  useEffect(() => {
+    const eventId = returnFocusTo.current
+    if (view.eventId !== null || eventId === null) return
+    returnFocusTo.current = null
+    const row = document.querySelector<HTMLElement>(`.event-list [data-event-id="${CSS.escape(eventId)}"]`)
+    const target = row && row.offsetParent !== null ? row : document.querySelector<HTMLElement>('.list-toggle')
+    target?.focus()
+  }, [view.eventId])
   const openPage = (page: ViewState['page']) => {
     window.history.pushState(null, '', window.location.href)
     setView((v) => ({ ...v, page }))
@@ -114,6 +146,7 @@ export default function App() {
           onSelect={selectFromList}
           onTheme={setTheme}
           onBasemap={setBasemapChoice}
+          onRetry={retry}
           onAbout={() => openPage('about')}
         />
 
@@ -131,7 +164,7 @@ export default function App() {
         </Suspense>
 
         {selected ? (
-          <Panel event={selected} onClose={() => select(null)} />
+          <Panel event={selected} onClose={() => closePanel(selected.properties.event_id)} />
         ) : view.eventId && events.state === 'ready' ? (
           <aside className="panel panel-note">
             <p className="quiet">The event in this link is not shown with the current filters.</p>

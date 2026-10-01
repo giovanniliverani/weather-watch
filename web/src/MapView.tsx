@@ -12,7 +12,7 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css'
 // MapLibre looks for its worker beside its own file, which bundling moves; Vite bundles the worker and gives its address.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Basemap } from './config'
 import { BOX, drawSymbol, iconId, MARK_INK, type Ground, type SeverityMark } from './symbols'
 import type { EventFeature, FootprintFeature } from './types'
@@ -58,6 +58,16 @@ function styleFor(basemap: Basemap): string | StyleSpecification {
       basemap: { type: 'raster', tiles: basemap.tiles, tileSize: basemap.tileSize, maxzoom: basemap.maxzoom, attribution: basemap.attribution },
     },
     layers: [{ id: 'basemap', type: 'raster', source: 'basemap' }],
+  }
+}
+
+/** A plain local style, used when the chosen basemap fails to load, so the events still draw. */
+function fallbackStyle(ground: Ground): StyleSpecification {
+  return {
+    version: 8,
+    glyphs: GLYPHS,
+    sources: {},
+    layers: [{ id: 'background', type: 'background', paint: { 'background-color': ground === 'dark' ? '#0c0c0c' : '#f2f3f0' } }],
   }
 }
 
@@ -148,6 +158,9 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
   const mapRef = useRef<MapLibreMap | null>(null)
   const fitted = useRef(initialView !== null)
   const shownBasemap = useRef(basemap.id)
+  const styleLoaded = useRef(false)
+  const usingFallback = useRef(false)
+  const [failedBasemap, setFailedBasemap] = useState<string | null>(null)
   const latest = useRef({ basemap, points, footprints, selectedId, onSelect, onMove })
   latest.current = { basemap, points, footprints, selectedId, onSelect, onMove }
 
@@ -180,8 +193,18 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
       map.addImage(iconId(hazard, ended, mark, ground), drawSymbol(hazard, ended, mark, ground, SYMBOL_PX, ratio), { pixelRatio: ratio })
     })
 
+    // A basemap style that cannot load (tile host down, offline, blocked by a proxy) never fires 'style.load', so the
+    // pins would never be added: fall back to a plain local background and say so.
+    map.on('error', () => {
+      if (styleLoaded.current || usingFallback.current) return
+      usingFallback.current = true
+      setFailedBasemap(latest.current.basemap.name)
+      map.setStyle(fallbackStyle(latest.current.basemap.ground), { diff: false })
+    })
+
     // Every style load (the first, and each basemap switch) wipes added layers, so they are put back here.
     map.on('style.load', () => {
+      styleLoaded.current = true
       const { basemap: b, points: p, footprints: f, selectedId: s } = latest.current
       addLayers(map, b.ground)
       ;(map.getSource('events') as GeoJSONSource).setData(collection(p))
@@ -200,8 +223,12 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     map.on('click', 'clusters', async (e: MapLayerMouseEvent) => {
       const feature = e.features?.[0]
       if (!feature || feature.geometry.type !== 'Point') return
-      const zoom = await (map.getSource('events') as GeoJSONSource).getClusterExpansionZoom(feature.properties.cluster_id)
-      map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom })
+      try {
+        const zoom = await (map.getSource('events') as GeoJSONSource).getClusterExpansionZoom(feature.properties.cluster_id)
+        map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom })
+      } catch {
+        // The clusters were rebuilt (new data) between the click and the answer; the next click works.
+      }
     })
     for (const layer of ['event-points', 'clusters']) {
       map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'))
@@ -223,6 +250,9 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     const map = mapRef.current
     if (!map || shownBasemap.current === basemap.id) return
     shownBasemap.current = basemap.id
+    styleLoaded.current = false
+    usingFallback.current = false
+    setFailedBasemap(null)
     map.setStyle(styleFor(basemap), { diff: false })
   }, [basemap])
 
@@ -253,5 +283,14 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     map.easeTo({ center: [flyTo.lon, flyTo.lat], zoom: Math.max(map.getZoom(), 7) })
   }, [flyTo])
 
-  return <main ref={container} className="map" />
+  return (
+    <div className="map-area">
+      <main ref={container} className="map" />
+      {failedBasemap ? (
+        <p className="map-note" role="status">
+          The {failedBasemap} map style did not load, so the events sit on a plain background.
+        </p>
+      ) : null}
+    </div>
+  )
 }
