@@ -58,6 +58,12 @@ DEFAULT_EXPORT_SINCE = "30d"
 DEFAULT_VIEWER_DAYS = 14
 SNAPSHOT_FORMAT = "eww.snapshot/1"  # the envelope written by collectors and replayed by ingest
 
+# --------------------------------------------------------------------------- `eww serve` (M7)
+# The API has no authentication, so it binds to this machine only; never 0.0.0.0 by default.
+SERVE_HOST = "127.0.0.1"
+SERVE_PORT = 8000
+SERVE_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # the Vite dev server in web/
+
 # --------------------------------------------------------------------------- spine, data branch, heartbeat
 SPINE_SOURCES = ["gdacs", "eonet", "copernicus"]  # `eww collect --all-spine`, what GitHub Actions runs
 DATA_BRANCH = "data"  # orphan branch holding snapshots/ and runs/, written by .github/workflows/collect.yml

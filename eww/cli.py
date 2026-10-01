@@ -282,6 +282,20 @@ def export(
     log.info("export features=%d since=%s until=%s", len(collection["features"]), collection["meta"]["filters_applied"]["since"], collection["meta"]["filters_applied"]["until"])
 
 
+@app.command()
+def serve(
+    host: str = typer.Option(config.SERVE_HOST, "--host", help="Interface to bind; the API has no authentication, keep it local."),
+    port: int = typer.Option(config.SERVE_PORT, "--port"),
+) -> None:
+    """Serve the read-only HTTP API the React frontend reads (GET /events.geojson, /health, ...)."""
+    import uvicorn
+
+    from eww.serve import create_app
+
+    _open().close()  # apply the schema and pending migrations once, before the first request
+    uvicorn.run(create_app(_state["db"]), host=host, port=port)
+
+
 # ----------------------------------------------------------------------------- doctor
 @app.command()
 def doctor(

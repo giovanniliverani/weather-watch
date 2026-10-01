@@ -41,6 +41,10 @@ uv run pytest                                              # tests against a tem
 
 Every command is idempotent: run `collect` twice and the second run reports 0 new rows; run `resolve` twice and the second changes nothing.
 
+### Run the API (M7)
+
+`uv run eww serve` starts the read-only HTTP API the React frontend in `web/` reads, at http://127.0.0.1:8000 (`--host`, `--port` to change; `--db` picks the SQLite file as for every command). It has no authentication, so keep it on 127.0.0.1. Endpoints, all GET: `/events.geojson` (the contract's filters as query parameters: `since=7d&hazard=flood&hazard=wildfire&min_severity=0.66&bbox=min_lon,min_lat,max_lon,max_lat&include_footprints=true&limit=0`, where `limit=0` means every event in the window), `/events/{event_id}/documents`, `/attributions` and `/health` (data freshness and the collector heartbeat). Interactive docs are at http://127.0.0.1:8000/docs. Only the Vite dev server (port 5173) may call it from a browser.
+
 ### Collection while the laptop is off (M1)
 
 [.github/workflows/collect.yml](.github/workflows/collect.yml) runs the same `eww collect` every three hours in GitHub Actions (cron `7 */3 * * *`, UTC) and commits the raw snapshots and the run log to the orphan `data` branch. Nothing needs a secret. The laptop replays what it has not seen:

@@ -277,15 +277,29 @@ def _footprints(conn, members: dict[str, list[str]]) -> list[dict]:
     return features
 
 
-def _meta(conn, now, since_iso, until_iso, hazards, min_severity, statuses, bbox_list, include_footprints, limit) -> dict:
-    beat = heartbeat.summary(conn, now)
-    data_as_of = conn.execute("SELECT MAX(last_seen_at) FROM source_record").fetchone()[0]
+def heartbeat_meta(*, conn: sqlite3.Connection | None = None, now: datetime | None = None) -> dict:
+    """The contract's `meta` without `filters_applied`: data freshness and collector heartbeat (GET /health)."""
+    now = now or now_utc()
+    own = conn is None
+    conn = conn or db.connect()
+    try:
+        beat = heartbeat.summary(conn, now)
+        data_as_of = conn.execute("SELECT MAX(last_seen_at) FROM source_record").fetchone()[0]
+    finally:
+        if own:
+            conn.close()
     return {
         "data_as_of": data_as_of,
         "last_collector_run_at": beat["last_collector_run_at"],
         "missed_runs_7d": beat["missed_runs_7d"],
         "expected_runs_7d": beat["expected_runs_7d"],
         "generated_at": to_iso(now),
+    }
+
+
+def _meta(conn, now, since_iso, until_iso, hazards, min_severity, statuses, bbox_list, include_footprints, limit) -> dict:
+    return {
+        **heartbeat_meta(conn=conn, now=now),
         "filters_applied": {
             "since": since_iso,
             "until": until_iso,
@@ -311,6 +325,17 @@ def count_in_window(conn: sqlite3.Connection, since: str | datetime, until: str 
 
 
 # ----------------------------------------------------------------------------- M3: the News tab and the About section
+def event_exists(event_id: str, *, conn: sqlite3.Connection | None = None) -> bool:
+    """Whether `event_id` names an event, live or merged (event_documents() follows a merged id)."""
+    own = conn is None
+    conn = conn or db.connect()
+    try:
+        return conn.execute("SELECT 1 FROM event WHERE event_id = ?", (event_id,)).fetchone() is not None
+    finally:
+        if own:
+            conn.close()
+
+
 DOCUMENT_FIELDS = ("document_id", "source_id", "kind", "title", "text_excerpt", "url", "author", "publisher", "published_at", "media_url", "media_kind", "language", "score", "method", "decided_by")
 
 
