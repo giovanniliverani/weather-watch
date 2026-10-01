@@ -52,6 +52,15 @@ def test_events_repeated_params_bbox_and_footprints(client, conn):
     assert body["meta"]["filters_applied"]["hazard"] == ["flood", "wildfire"]
 
 
+def test_the_maps_own_query_string_reads_like_events_geojson(client, conn):
+    # web/src/api.ts eventsQuery() output for 14 days, any severity, two hazards, footprints on.
+    query = "since=14d&min_severity=0&limit=0&hazard=flood&hazard=wildfire&include_footprints=true"
+    body = client.get(f"/events.geojson?{query}").json()
+    expected = api.events_geojson("14d", hazard=["flood", "wildfire"], min_severity=0.0, include_footprints=True, limit=0, conn=conn)
+    assert expected["features"]
+    assert without_generated_at(body) == without_generated_at(expected)
+
+
 def test_limit_zero_means_everything_in_the_window(client, conn):
     body = client.get("/events.geojson", params={"since": "36500d", "limit": 0}).json()
     assert len(body["features"]) == api.count_in_window(conn, "2000-01-01T00:00:00Z") == 15
@@ -327,6 +336,7 @@ def test_forecast_malformed_reply_is_502(client, monkeypatch):
         ({"Sec-Fetch-Site": "cross-site", "Origin": "https://example.com"}, 403),
         ({"Sec-Fetch-Site": "cross-site"}, 403),
         ({"Sec-Fetch-Site": "cross-site", "Origin": DEV_ORIGIN}, 200),
+        ({"Sec-Fetch-Site": "cross-site", "Origin": "http://127.0.0.1:5173"}, 200),
         ({"Sec-Fetch-Site": "same-site", "Origin": "http://localhost:5173"}, 200),
         ({"Sec-Fetch-Site": "same-origin"}, 200),
         ({"Sec-Fetch-Site": "none"}, 200),

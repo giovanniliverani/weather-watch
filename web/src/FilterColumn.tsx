@@ -153,15 +153,15 @@ export default function FilterColumn(props: Props) {
             })}
           </ul>
           <div className="legend-foot">
-            <ul className="key quiet" aria-label="How symbols read">
+            <ul className="key quiet" aria-label="How symbols read; rings show the severity score's band">
               <li>
                 <HazardSymbol hazard="other" ended size={14} /> ended
               </li>
               <li>
-                <HazardSymbol hazard="other" mark="orange" size={14} /> Orange
+                <HazardSymbol hazard="other" mark="orange" size={14} /> Orange band
               </li>
               <li>
-                <HazardSymbol hazard="other" mark="red" size={14} /> Red
+                <HazardSymbol hazard="other" mark="red" size={14} /> Red band
               </li>
             </ul>
             {filters.hazards.length ? (

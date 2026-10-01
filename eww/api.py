@@ -42,6 +42,16 @@ def severity_steps() -> list[dict]:
         reach = f"score {value:g}" if value >= 1.0 else f"score {value:g} and up"  # 1.0 is the top of the scale
         steps.append({"value": value, "label": label, "hint": f"{reach}: {', '.join(kept)}, or another feed scored as high"})
     return steps
+
+
+def severity_band(score: float | None) -> str | None:
+    """Name the highest GDACS band the score reaches ('Green', 'Orange', 'Red'), with the severity steps' thresholds."""
+    if score is None:
+        return None
+    reached = [label for label, value in config.GDACS_SEVERITY.items() if score >= value]
+    return max(reached, key=config.GDACS_SEVERITY.__getitem__, default=None)
+
+
 EMS_SOURCE_ID = "copernicus"  # ems_activation is True when a Copernicus EMS activation sits on the event
 DEFAULT_LIMIT = 2000
 
@@ -55,6 +65,7 @@ EVENT_PROPERTIES = (
     "last_observed_at",
     "severity_score",
     "severity_label",
+    "severity_band",
     "country_iso3",
     "country_name",
     "precision",
@@ -253,6 +264,7 @@ def _feature(event: sqlite3.Row, records: list[sqlite3.Row], documents: dict) ->
         "last_observed_at": event["last_observed_at"],
         "severity_score": event["severity_score"],
         "severity_label": event["severity_label"],
+        "severity_band": severity_band(event["severity_score"]),  # so the map's rings agree with the severity filter
         "country_iso3": event["country_iso3"],
         "country_name": countries.name_for(event["country_iso3"]),  # GeoNames English name; null without a country
         "precision": event["precision"] or "unresolved",

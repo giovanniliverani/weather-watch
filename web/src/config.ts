@@ -3,13 +3,19 @@
 /** Where `uv run eww serve` listens. Override with VITE_API_BASE_URL in web/.env.local. */
 export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
+/** The page addresses `eww serve` answers: eww/config.py SERVE_CORS_ORIGINS, kept equal by tests/test_web_config.py. */
+export const API_PAGE_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173']
+
 /** A basemap the map can draw. `ground` picks the symbol colours that stay readable on it. */
 export type Basemap =
   | { id: string; name: string; kind: 'style'; url: string; attribution: string; ground: 'dark' | 'light' }
   /** A raster tile service (for example satellite imagery): its tiles and credit become a one-layer style. */
   | { id: string; name: string; kind: 'raster'; tiles: string[]; tileSize: number; maxzoom: number; attribution: string; ground: 'dark' | 'light' }
 
+// Each *_CREDIT is also an /attributions entry in eww/api.py; tests/test_web_config.py checks they match.
 const OPENFREEMAP_CREDIT = 'OpenFreeMap © OpenMapTiles Data from OpenStreetMap'
+const GIBS_CREDIT = "We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS)."
+const ESRI_CREDIT = 'Powered by Esri. Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community'
 
 /** NASA GIBS shows the latest complete UTC day, not today's partial one: yesterday in UTC, as YYYY-MM-DD. Before
  *  03:00 UTC yesterday's last passes may still be processing, so it shows the day before. */
@@ -23,7 +29,7 @@ const GIBS_TODAY: Basemap = {
   tiles: [`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/${GIBS_DAY}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`],
   tileSize: 256,
   maxzoom: 9,
-  attribution: `NASA GIBS, VIIRS NOAA-20 true colour, ${GIBS_DAY_LABEL} UTC. We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS).`,
+  attribution: `NASA GIBS, VIIRS NOAA-20 true colour, ${GIBS_DAY_LABEL} UTC. ${GIBS_CREDIT}`,
   ground: 'dark',
 }
 
@@ -38,7 +44,7 @@ const ESRI_SATELLITE: Basemap | null = ESRI_API_KEY
       tiles: [`https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=${encodeURIComponent(ESRI_API_KEY)}`],
       tileSize: 256,
       maxzoom: 19,
-      attribution: 'Powered by Esri. Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community',
+      attribution: ESRI_CREDIT,
       ground: 'dark',
     }
   : null

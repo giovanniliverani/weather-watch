@@ -136,8 +136,8 @@ function addLayers(map: MapLibreMap, ground: Ground) {
         '-',
         ['case', ['==', ['get', 'status'], 'ended'], 'ended', 'active'],
         '-',
-        // The severity mark follows the API's own label (symbols.ts severityMark), no thresholds here.
-        ['match', ['get', 'severity_label'], 'Red', 'red', 'Orange', 'orange', 'none'],
+        // The severity mark follows the API's severity_band (symbols.ts severityMark), no thresholds here.
+        ['match', ['get', 'severity_band'], 'Red', 'red', 'Orange', 'orange', 'none'],
       ],
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,

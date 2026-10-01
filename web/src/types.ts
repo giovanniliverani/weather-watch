@@ -11,6 +11,8 @@ export interface EventProperties {
   last_observed_at: string | null
   severity_score: number | null
   severity_label: string | null
+  /** 'Green', 'Orange' or 'Red': the score's band, with the severity steps' thresholds; the map's rings follow it. */
+  severity_band: 'Green' | 'Orange' | 'Red' | null
   country_iso3: string | null
   country_name: string | null
   precision: string

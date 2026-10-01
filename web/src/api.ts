@@ -1,6 +1,6 @@
 // The only module that talks to `eww serve`. Each function is one GET; errors become ApiError.
-import { API_BASE_URL } from './config'
-import type { Attribution, DocumentItem, EventCollection, Forecast, Heartbeat, SeverityStep } from './types'
+import { API_BASE_URL, API_PAGE_ORIGINS } from './config'
+import type { Attribution, DocumentItem, EventCollection, Forecast, SeverityStep } from './types'
 import type { Filters } from './url'
 
 export class ApiError extends Error {
@@ -18,7 +18,11 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
     response = await fetch(`${API_BASE_URL}${path}`, { signal })
   } catch (error) {
     if (signal?.aborted) throw error
-    throw new ApiError('The API is not answering. Start it with: uv run eww serve', null)
+    // The API's refusals of a foreign page address carry no CORS headers, so they also land here, not below.
+    throw new ApiError(
+      `The API is not answering, or it refused this page's address (it answers only ${API_PAGE_ORIGINS.join(' and ')}). Is \`uv run eww serve\` running?`,
+      null,
+    )
   }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { detail?: unknown } | null
@@ -42,8 +46,6 @@ export const fetchEvents = (filters: Filters, signal?: AbortSignal) =>
 export const fetchHazards = (signal?: AbortSignal) => get<string[]>('/hazards', signal)
 
 export const fetchSeveritySteps = (signal?: AbortSignal) => get<SeverityStep[]>('/severity-steps', signal)
-
-export const fetchHealth = (signal?: AbortSignal) => get<Heartbeat>('/health', signal)
 
 export const fetchAttributions = (signal?: AbortSignal) => get<Attribution[]>('/attributions', signal)
 

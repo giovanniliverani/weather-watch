@@ -74,6 +74,19 @@ def test_severity_steps_change_with_config(monkeypatch):
     assert all("EMS activation" in s["hint"] for s in steps[1:])
 
 
+def test_severity_band_uses_the_severity_step_thresholds():
+    assert [api.severity_band(s) for s in (None, 0.0, 0.32, 0.33, 0.659, 0.66, 0.99, 1.0)] == [None, None, None, "Green", "Green", "Orange", "Orange", "Red"]
+
+
+def test_severity_band_agrees_with_the_severity_filter(conn, data_dir):
+    prepared(conn, data_dir)
+    rank = {None: 0, "Green": 1, "Orange": 2, "Red": 3}
+    everything = api.events_geojson(SINCE, conn=conn)["features"]
+    for index, step in enumerate(api.severity_steps()[1:], start=1):
+        kept = {f["id"] for f in api.events_geojson(SINCE, min_severity=step["value"], conn=conn)["features"]}
+        assert kept == {f["id"] for f in everything if rank[f["properties"]["severity_band"]] >= index}
+
+
 def test_country_name_comes_from_the_geonames_table():
     assert api.countries.name_for("HRV") == "Croatia"
     assert api.countries.name_for(None) is None and api.countries.name_for("XXX") is None

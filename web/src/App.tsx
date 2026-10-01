@@ -205,7 +205,7 @@ export default function App() {
         </Suspense>
 
         {selected ? (
-          <Panel event={selected} onClose={() => closePanel(selected.properties.event_id)} />
+          <Panel key={selected.properties.event_id} event={selected} onClose={() => closePanel(selected.properties.event_id)} />
         ) : view.eventId && events.state === 'ready' ? (
           <aside className="panel panel-note">
             <p className="quiet">The event in this link is not shown with the current filters.</p>

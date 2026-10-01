@@ -71,10 +71,10 @@ export const SYMBOL_INK = '#101317'
 export const HOLLOW_FILL: Record<Ground, string> = { dark: '#101317', light: '#ffffff' }
 export const GLYPH_STROKE = 1.9
 
-/** Severity, shown as rings outside the disc: one for Orange, two for Red. Read from the API's severity_label
- *  as given; any other label (Green, an EONET acreage, none) gets no mark. */
+/** Severity, shown as rings outside the disc: one for Orange, two for Red. Read from the API's severity_band (the
+ *  score's band, the same thresholds as the severity filter); Green or no band gets no mark. */
 export type SeverityMark = 'none' | 'orange' | 'red'
-export const severityMark = (label: string | null): SeverityMark => (label === 'Red' ? 'red' : label === 'Orange' ? 'orange' : 'none')
+export const severityMark = (band: string | null): SeverityMark => (band === 'Red' ? 'red' : band === 'Orange' ? 'orange' : 'none')
 /** The rings' ink: the text colour on that ground (index.css --text per theme; keep the two in step). */
 export const MARK_INK: Record<Ground, string> = { dark: '#e8e8e8', light: '#1b1b1b' }
 /** A symbol sits in a 32-unit box: the 24-unit disc and glyph in the middle, the severity rings around it. */

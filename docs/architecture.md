@@ -223,7 +223,7 @@ At this prompt shape Sonnet 5 with caching costs the same as Haiku 4.5 without i
 | Storage engine | SQLite, WAL mode | Postgres + PostGIS + pgvector (Neon or Supabase) when a second writer appears | `db.py` connection and placeholder style; the DDL in §3 is written to be portable |
 | Extractor backend | Ollama on the laptop | Claude through the Batch API | One class behind the `Extractor` interface; the ledger and the cap are shared |
 | Geocoder provider | Local gazetteer, GeoNames web service, Nominatim | Self-hosted Photon, or a paid provider | One class behind the `Geocoder` interface; `geocode_cache` is provider-keyed and stays |
-| Viewer | Streamlit + folium reading `events_geojson()` in-process | **Decided 2026-09-22: a React + MapLibre map in `web/` reading `GET /events.geojson`, `/events/{id}/documents`, `/attributions`, `/forecast` and `/health` from `eww serve` (M7, built before M6 by your decision of 2026-10-01)** | Nothing in the pipeline. The FastAPI wrapper is about 30 lines; the frontend holds no data logic |
+| Viewer | Streamlit + folium reading `events_geojson()` in-process | **Decided 2026-09-22: a React + MapLibre map in `web/` reading `GET /events.geojson`, `/events/{id}/documents`, `/attributions`, `/forecast`, `/hazards` and `/severity-steps` from `eww serve` (`/health` is for scripts) (M7, built before M6 by your decision of 2026-10-01)** | Nothing in the pipeline. The FastAPI wrapper is about 30 lines; the frontend holds no data logic |
 
 **The GeoJSON contract, the interface you must protect**
 
@@ -242,12 +242,16 @@ FeatureCollection.meta   (a top-level "meta" member; RFC 7946 allows foreign mem
 Feature, one per event; geometry = Point at the primary centroid
   properties:
     event_id, hazard_type, title, status, started_at, ended_at, last_observed_at,
-    severity_score (0..1), severity_label, country_iso3, country_name, precision, glide_number,
-    source_ids [..], ems_activation (bool), doc_count, post_count, video_count,
+    severity_score (0..1), severity_label, severity_band, country_iso3, country_name, precision,
+    glide_number, source_ids [..], ems_activation (bool), doc_count, post_count, video_count,
     summary, summary_updated_at, thumbnail_url (a reference, may be null),
     detail_url (the primary source's own page for the event)
   (country_name, M7: the GeoNames English name for country_iso3 from eww/data/countries.csv,
    null when there is no country or the code is unknown)
+  (severity_band, M7: "Green", "Orange" or "Red", the highest config.GDACS_SEVERITY threshold that
+   severity_score reaches, the same thresholds as GET /severity-steps, so the map's severity rings
+   agree with the minimum-severity filter; null when the score is null or below Green.
+   severity_label stays the primary source's own words)
 
 Feature, only when include_footprints=True; geometry = Polygon or LineString
   properties: event_id, role ("footprint" | "track" | "impact_area"), observed_at, source_id
@@ -853,7 +857,7 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 3. Clicking a pin shows title, hazard, severity label, started, last observed, country, sources and the detail link. Its News tab lists the articles and reports and its Posts tab the posts and videos that `GET /events/{id}/documents` returns, syndicated copies collapsed. Its Weather tab shows the current conditions and a 5-day forecast from `GET /forecast` for the pin's coordinates within 3 seconds.
 4. Filters and the selected event live in the URL: reloading the page restores them.
 5. impeccable `audit` reports no serious accessibility violation, and the layout works at 375 px wide.
-6. The Python side changed only in `eww serve` and in the three read-only `eww.api` additions above; `uv run pytest` passes and `uv run streamlit run app.py` still runs.
+6. The Python side changed only in `eww serve` (`eww/serve.py`); the `eww.api` additions (`heartbeat_meta()`, `event_exists()`, range checks on the filters, `hazards`, `pipeline_stale`, `country_name`, `severity_band`, `severity_steps()` and the basemap attribution entries); the read-only helpers in `eww/db.py`; `eww/cli.py` (the `serve` command and the export helpers); `eww/config.py`; `eww/frontend_report.py` (the list is `config.FRONTEND_PYTHON_SCOPE`); `uv run pytest` passes and `uv run streamlit run app.py` still runs.
 
 **Why it might overrun.** A first JavaScript project: Node, TypeScript, Vite and MapLibre are all new. The mitigation is the boundary: the frontend holds no data logic, so every bug is a display bug, and the two skills carry the design and performance judgement.
 
@@ -1472,7 +1476,10 @@ DEFINITION OF DONE
    the pin within 3 seconds.
 4. Filters and the selected event survive a page reload through the URL.
 5. impeccable `audit`: no serious accessibility violation; the layout works at 375 px.
-6. Python changed only in `eww serve` and in step 1's three eww.api additions; pytest passes and the
+6. Python changed only in eww serve (eww/serve.py); the eww.api additions (heartbeat_meta, event_exists,
+   range checks, hazards, pipeline_stale, country_name, severity_band, severity_steps, attribution
+   entries); the read-only helpers in eww/db.py; eww/cli.py (serve and the export helpers);
+   eww/config.py; eww/frontend_report.py (config.FRONTEND_PYTHON_SCOPE). pytest passes and the
    Streamlit app still runs.
 ```
 

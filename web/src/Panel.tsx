@@ -11,9 +11,9 @@ import { useResource, type Resource } from './useResource'
 const TABS = ['Details', 'News', 'Posts', 'Weather'] as const
 type Tab = (typeof TABS)[number]
 
-// Answers kept for the session: reopening an event or its Weather tab does not ask the API again.
+// Documents are kept for the session: reopening an event does not ask the API again. Forecasts are not kept here,
+// since "current" conditions go stale; eww serve caches them for 30 minutes.
 const documentCache = new Map<string, DocumentItem[]>()
-const forecastCache = new Map<string, Forecast>()
 
 interface Props {
   event: EventFeature
@@ -25,25 +25,24 @@ export default function Panel({ event, onClose }: Props) {
   const [lon, lat] = event.geometry.coordinates
   const [tab, setTab] = useState<Tab>('Details')
   const [collapsed, setCollapsed] = useState(false)
-  // The event whose forecast was asked for by hovering or focusing the Weather tab; other events wait for a click.
-  const [weatherWantedFor, setWeatherWantedFor] = useState<string | null>(null)
+  // Hovering or focusing the Weather tab asks for the forecast ahead of the click.
+  const [weatherWanted, setWeatherWanted] = useState(false)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
   const heading = useRef<HTMLHeadingElement>(null)
   const baseId = useId()
 
-  // An event picked from the events list moves focus here, so keyboard and screen-reader users land on it.
+  // An event picked from the events list moves focus here, so keyboard and screen-reader users land on it. App keys
+  // the panel by event, so each event starts afresh: Details tab, retry counters at zero.
   useEffect(() => {
     if (document.activeElement?.closest('.event-list')) heading.current?.focus()
-  }, [p.event_id])
+  }, [])
 
-  // A new attempt number makes a new request key, which is how "Try again" asks the API once more. Each request has
-  // its own counter, and a new event starts both from zero, so its cached answers are used.
+  // A new attempt number makes a new request key, which is how "Try again" asks the API once more.
   const [attempts, setAttempts] = useState({ documents: 0, forecast: 0 })
   const retry = (which: keyof typeof attempts) => () => setAttempts((a) => ({ ...a, [which]: a[which] + 1 }))
-  useEffect(() => setAttempts({ documents: 0, forecast: 0 }), [p.event_id])
   const documents = useResource(`${p.event_id}#${attempts.documents}`, (signal) => fetchDocuments(p.event_id, signal), documentCache)
   const forecastKey = `${lat.toFixed(4)},${lon.toFixed(4)}#${attempts.forecast}`
-  const forecast = useResource(weatherWantedFor === p.event_id || tab === 'Weather' ? forecastKey : null, (signal) => fetchForecast(lat, lon, signal), forecastCache)
+  const forecast = useResource(weatherWanted || tab === 'Weather' ? forecastKey : null, (signal) => fetchForecast(lat, lon, signal))
 
   function onTabKey(e: KeyboardEvent, index: number) {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
@@ -62,7 +61,7 @@ export default function Panel({ event, onClose }: Props) {
       onKeyDown={(e) => e.key === 'Escape' && !e.repeat && onClose()}
     >
       <header className="panel-head">
-        <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} mark={severityMark(p.severity_label)} size={28} />
+        <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} mark={severityMark(p.severity_band)} size={28} />
         <div>
           <h2 id={`${baseId}-title`} ref={heading} tabIndex={-1}>
             {p.title}
@@ -105,8 +104,8 @@ export default function Panel({ event, onClose }: Props) {
               tabIndex={tab === name ? 0 : -1}
               onClick={() => setTab(name)}
               onKeyDown={(e) => onTabKey(e, index)}
-              onPointerEnter={name === 'Weather' ? () => setWeatherWantedFor(p.event_id) : undefined}
-              onFocus={name === 'Weather' ? () => setWeatherWantedFor(p.event_id) : undefined}
+              onPointerEnter={name === 'Weather' ? () => setWeatherWanted(true) : undefined}
+              onFocus={name === 'Weather' ? () => setWeatherWanted(true) : undefined}
             >
               {name}
               {name === 'News' && p.doc_count ? <span className="count">{p.doc_count}</span> : null}
