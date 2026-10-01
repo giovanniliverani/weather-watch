@@ -95,6 +95,11 @@ def create_app(db_path: Path | None = None, host: str = config.SERVE_HOST) -> Fa
         """The hazard_type ids in config order, for the frontend's hazard filter."""
         return list(api.HAZARD_TYPES)
 
+    @app.get("/severity-steps")
+    def severity_steps() -> list[dict]:
+        """The minimum-severity filter's steps (value, label, hint), built from config by eww.api."""
+        return api.severity_steps()
+
     forecasts: dict[tuple[float, float], tuple[float, dict]] = {}  # (lat, lon) -> (expires at, forecast); memory only
     forecasts_lock = threading.Lock()
 

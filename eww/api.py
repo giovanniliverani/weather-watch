@@ -25,6 +25,23 @@ from eww import collectors, config, countries, db, embed, events, heartbeat, wea
 from eww.clock import now_utc, parse_iso, parse_when, to_iso
 
 HAZARD_TYPES: list[str] = list(config.HAZARD_TYPES)
+
+
+def severity_steps() -> list[dict]:
+    """The minimum-severity filter's steps: 'Any', then one per GDACS band, built from config (GET /severity-steps).
+
+    The filter works on severity_score, so each hint says which events a step keeps: the GDACS bands at or above
+    it, a Copernicus EMS activation when its floor reaches the step, and other feeds' scores as high.
+    """
+    bands = sorted(config.GDACS_SEVERITY.items(), key=lambda item: item[1])
+    steps = [{"value": 0.0, "label": "Any", "hint": "every event, whatever its severity"}]
+    for label, value in bands:
+        kept = [name for name, score in bands if score >= value]
+        if config.EMS_SEVERITY_FLOOR >= value:
+            kept.append("an EMS activation")
+        reach = f"score {value:g}" if value >= 1.0 else f"score {value:g} and up"  # 1.0 is the top of the scale
+        steps.append({"value": value, "label": label, "hint": f"{reach}: {', '.join(kept)}, or another feed scored as high"})
+    return steps
 EMS_SOURCE_ID = "copernicus"  # ems_activation is True when a Copernicus EMS activation sits on the event
 DEFAULT_LIMIT = 2000
 

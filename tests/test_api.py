@@ -57,6 +57,23 @@ def test_export_matches_the_contract_keys(conn, data_dir):
     json.dumps(collection)  # serialisable
 
 
+def test_severity_steps_follow_the_config_bands():
+    steps = api.severity_steps()
+    assert [s["label"] for s in steps] == ["Any", "Green", "Orange", "Red"]
+    assert [s["value"] for s in steps] == [0.0, 0.33, 0.66, 1.0]
+    orange = steps[2]["hint"]
+    assert "0.66" in orange and "Orange" in orange and "Red" in orange and "EMS activation" in orange
+    assert "EMS activation" not in steps[3]["hint"]  # the EMS floor (0.66) is below Red
+
+
+def test_severity_steps_change_with_config(monkeypatch):
+    monkeypatch.setattr(api.config, "GDACS_SEVERITY", {"Green": 0.2, "Orange": 0.5, "Red": 0.9})
+    monkeypatch.setattr(api.config, "EMS_SEVERITY_FLOOR", 0.9)
+    steps = api.severity_steps()
+    assert [s["value"] for s in steps] == [0.0, 0.2, 0.5, 0.9]
+    assert all("EMS activation" in s["hint"] for s in steps[1:])
+
+
 def test_country_name_comes_from_the_geonames_table():
     assert api.countries.name_for("HRV") == "Croatia"
     assert api.countries.name_for(None) is None and api.countries.name_for("XXX") is None

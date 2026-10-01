@@ -120,6 +120,10 @@ def test_hazards_are_the_config_list_in_order(client):
     assert client.get("/hazards", headers={"Sec-Fetch-Site": "cross-site", "Origin": "https://example.com"}).status_code == 403
 
 
+def test_severity_steps_are_served_from_eww_api(client):
+    assert client.get("/severity-steps").json() == api.severity_steps()
+
+
 def test_health_carries_pipeline_stale(client):
     assert isinstance(client.get("/health").json()["pipeline_stale"], bool)
 
