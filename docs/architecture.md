@@ -788,7 +788,7 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 
 **Risk retired.** Model cost containment; adequacy of the local model.
 
-### M5 — Posts, videos and weather on click (medium)
+### M5 — Posts, videos and weather on click (medium) — BUILT 2026-09-26, SHORT OF THE BAR; merged as is 2026-10-01
 
 **Goal.** The sidebar carries the README's social feed and forecast at zero recurring cost. The project is pre-production, so this milestone spends nothing: a source whose free path needs a credit card or a billing account is skipped.
 
