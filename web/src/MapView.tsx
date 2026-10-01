@@ -4,10 +4,13 @@ import {
   LngLatBounds,
   Map as MapLibreMap,
   NavigationControl,
+  setWorkerUrl,
   type GeoJSONSource,
   type MapLayerMouseEvent,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+// MapLibre looks for its worker beside its own file, which bundling moves; Vite bundles the worker and gives its address.
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { useEffect, useRef } from 'react'
 import { BASEMAP_STYLE_URL } from './config'
 import { drawSymbol, iconId } from './symbols'
@@ -30,6 +33,8 @@ interface Props {
   onSelect: (eventId: string) => void
   onMove: (view: View) => void
 }
+
+setWorkerUrl(workerUrl)
 
 const SYMBOL_PX = 22
 const LIGHT = '#e6e8eb'
