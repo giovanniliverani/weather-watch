@@ -34,6 +34,7 @@
         "severity_score": 0.33,
         "severity_label": "Green",
         "country_iso3": "HRV",
+        "country_name": "Croatia",
         "precision": "admin1",
         "glide_number": null,
         "source_ids": ["gdacs"],

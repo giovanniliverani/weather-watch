@@ -242,10 +242,12 @@ FeatureCollection.meta   (a top-level "meta" member; RFC 7946 allows foreign mem
 Feature, one per event; geometry = Point at the primary centroid
   properties:
     event_id, hazard_type, title, status, started_at, ended_at, last_observed_at,
-    severity_score (0..1), severity_label, country_iso3, precision, glide_number,
+    severity_score (0..1), severity_label, country_iso3, country_name, precision, glide_number,
     source_ids [..], ems_activation (bool), doc_count, post_count, video_count,
     summary, summary_updated_at, thumbnail_url (a reference, may be null),
     detail_url (the primary source's own page for the event)
+  (country_name, M7: the GeoNames English name for country_iso3 from eww/data/countries.csv,
+   null when there is no country or the code is unknown)
 
 Feature, only when include_footprints=True; geometry = Polygon or LineString
   properties: event_id, role ("footprint" | "track" | "impact_area"), observed_at, source_id

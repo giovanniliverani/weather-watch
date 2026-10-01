@@ -21,7 +21,7 @@ import sqlite3
 from datetime import datetime
 from typing import Iterable
 
-from eww import collectors, config, db, embed, events, heartbeat, weather
+from eww import collectors, config, countries, db, embed, events, heartbeat, weather
 from eww.clock import now_utc, parse_iso, parse_when, to_iso
 
 HAZARD_TYPES: list[str] = list(config.HAZARD_TYPES)
@@ -39,6 +39,7 @@ EVENT_PROPERTIES = (
     "severity_score",
     "severity_label",
     "country_iso3",
+    "country_name",
     "precision",
     "glide_number",
     "source_ids",
@@ -236,6 +237,7 @@ def _feature(event: sqlite3.Row, records: list[sqlite3.Row], documents: dict) ->
         "severity_score": event["severity_score"],
         "severity_label": event["severity_label"],
         "country_iso3": event["country_iso3"],
+        "country_name": countries.name_for(event["country_iso3"]),  # GeoNames English name; null without a country
         "precision": event["precision"] or "unresolved",
         "glide_number": event["glide_number"],
         "source_ids": source_ids,

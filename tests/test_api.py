@@ -47,11 +47,19 @@ def test_export_matches_the_contract_keys(conn, data_dir):
         assert feature["properties"]["ems_activation"] is False
         assert feature["properties"]["precision"] in ("exact", "admin1")
         assert feature["properties"]["detail_url"].startswith("https://")
+        iso3, name = feature["properties"]["country_iso3"], feature["properties"]["country_name"]
+        assert (name is None) if iso3 is None else (isinstance(name, str) and name)
+    assert any(f["properties"]["country_name"] for f in points)
     for feature in polygons:
         assert set(feature["properties"]) == footprint_keys == set(api.FOOTPRINT_PROPERTIES)
         assert feature["properties"]["role"] == "footprint"
         assert feature["properties"]["event_id"] in {f["properties"]["event_id"] for f in points}
     json.dumps(collection)  # serialisable
+
+
+def test_country_name_comes_from_the_geonames_table():
+    assert api.countries.name_for("HRV") == "Croatia"
+    assert api.countries.name_for(None) is None and api.countries.name_for("XXX") is None
 
 
 def test_pin_count_equals_the_sql_count(conn, data_dir):
