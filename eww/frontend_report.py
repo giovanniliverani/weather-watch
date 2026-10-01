@@ -82,15 +82,16 @@ def run_build(web_dir: Path) -> dict:
 
 
 def build_check(web_dir: Path, build: bool = False) -> dict:
-    """Whether web/dist exists (the build runs tsc first, so a dist means zero TypeScript errors) and its size."""
+    """Run the build when asked, then measure web/dist; it passes only when this run built it cleanly within budget."""
     result = run_build(web_dir) if build else {"ran": False, "ok": None, "seconds": None, "ts_errors": None, "error": None}
     dist = web_dir / "dist"
     if not (dist / "index.html").exists():
         return {**result, "built": False, "built_at": None, "bundle": None, "passed": False}
     built_at = to_iso(datetime.fromtimestamp((dist / "index.html").stat().st_mtime, tz=UTC))
     bundle = first_load_js(dist)
-    passed = result["ok"] is not False and bundle["gzip_bytes"] <= config.FRONTEND_FIRST_LOAD_JS_KB * 1024
-    return {**result, "built": True, "built_at": built_at, "bundle": bundle, "passed": passed}
+    within = bundle["gzip_bytes"] <= config.FRONTEND_FIRST_LOAD_JS_KB * 1024
+    # Only a build run by this report proves zero TypeScript errors; a dist on disk may be old or skipped tsc.
+    return {**result, "built": True, "built_at": built_at, "bundle": bundle, "within_budget": within, "passed": result["ok"] is True and within}
 
 
 # --------------------------------------------------------------------------- 2. parity
@@ -111,8 +112,7 @@ def parity(conn: sqlite3.Connection, client, name: str, view: dict, map_count: i
     view = {**view, "since": to_iso(parse_when(view["since"], api.now_utc()))}  # one window for all three counts
     from_api = _points(api.events_geojson(view["since"], hazard=view.get("hazard"), min_severity=view.get("min_severity", 0.0), limit=0, conn=conn))
     response = client.get("/events.geojson", params={**view, "limit": 0})
-    response.raise_for_status()
-    from_http = _points(response.json())
+    from_http = _points(response.json()) if response.status_code == 200 else None  # a server error is a FAIL row, not a crash
     from_export = export_count(conn, view)
     agree = from_api == from_http == from_export
     if not agree or (map_count is not None and map_count != from_api):
@@ -134,14 +134,16 @@ def views() -> list[tuple[str, dict]]:
 # --------------------------------------------------------------------------- 3. one sample pin
 def sample_pin(client, network: bool = True) -> dict:
     """The default view's pin with the most documents, its News and Posts counts, and one timed /forecast call."""
-    features = client.get("/events.geojson", params={"since": f"{config.DEFAULT_VIEWER_DAYS}d", "limit": 0}).json()["features"]
+    response = client.get("/events.geojson", params={"since": f"{config.DEFAULT_VIEWER_DAYS}d", "limit": 0})
+    features = response.json()["features"] if response.status_code == 200 else []
     pins = [f for f in features if f["geometry"]["type"] == "Point"]
     if not pins:
         return {"event": None}
     pin = max(pins, key=lambda f: (f["properties"]["doc_count"] or 0) + (f["properties"]["post_count"] or 0) + (f["properties"]["video_count"] or 0))
     props = pin["properties"]
     lon, lat = pin["geometry"]["coordinates"]
-    items = client.get(f"/events/{props['event_id']}/documents").json()
+    documents = client.get(f"/events/{props['event_id']}/documents")
+    items = documents.json() if documents.status_code == 200 else []
     news = sum(1 for item in items if item["kind"] in NEWS_KINDS)
     result = {"event": {"event_id": props["event_id"], "title": props["title"], "lat": lat, "lon": lon}, "news": news, "posts": len(items) - news}
     if not network:
@@ -218,7 +220,7 @@ def frontend_report(
     from eww.serve import create_app
 
     web_dir = web_dir or config.WEB_DIR
-    client = TestClient(create_app(db_path), base_url=f"http://{config.SERVE_HOST}:{config.SERVE_PORT}")
+    client = TestClient(create_app(db_path), raise_server_exceptions=False, base_url=f"http://{config.SERVE_HOST}:{config.SERVE_PORT}")
     changed = changed_python(base, root)
     return {
         "generated_at": to_iso(now or now_utc()),
@@ -249,14 +251,18 @@ def _build_row(build: dict) -> tuple[str, str, str, str]:
         return ("`npm run build`", f"failed: {build['error']}", target, FAIL)
     if not build["built"]:
         return ("`npm run build`", "not built (no web/dist/index.html)", target, FAIL)
-    timing = f"{build['seconds']} s" if build["ran"] else "time not measured (run with --build)"
-    measured = f"built {build['built_at']}, {timing}; first load {_kb(build['bundle']['gzip_bytes'])} gzipped"
-    return ("`npm run build`", measured, target, PASS if build["passed"] else FAIL)
+    size = f"first load {_kb(build['bundle']['gzip_bytes'])} gzipped"
+    if not build["within_budget"]:
+        return ("`npm run build`", f"dist from {build['built_at']}; {size}", target, FAIL)
+    if not build["ran"]:
+        return ("`npm run build`", f"dist from {build['built_at']}, not rebuilt; {size}; run with --build to verify", target, BY_HAND)
+    return ("`npm run build`", f"built in {build['seconds']} s, 0 TypeScript errors; {size}", target, PASS)
 
 
 def _parity_row(row: dict) -> tuple[str, str, str, str]:
     map_count = "check by hand" if row["map"] is None else str(row["map"])
-    measured = f"events_geojson {row['events_geojson']}, export {row['export']}, API {row['http']}, map {map_count}"
+    api_count = "error" if row["http"] is None else row["http"]
+    measured = f"events_geojson {row['events_geojson']}, export {row['export']}, API {api_count}, map {map_count}"
     if row["events_geojson"] == 0:
         measured += " (view is empty, so equal counts prove little)"
     return (f"Pin parity: {row['name']}", measured, "all equal", row["verdict"])
@@ -276,7 +282,8 @@ def _pin_rows(pin: dict) -> list[tuple[str, str, str, str]]:
     if forecast["skipped"]:
         rows.append((criterion, f"not measured: {forecast['error']}", target, SKIPPED))
     else:
-        rows.append((criterion, f"{forecast['seconds']:.3f} s, {forecast['days']} days", target, PASS if forecast["ok"] else FAIL))
+        measured = f"{forecast['error']} after {forecast['seconds']:.3f} s" if forecast["error"] else f"{forecast['seconds']:.3f} s, {forecast['days']} days"
+        rows.append((criterion, measured, target, PASS if forecast["ok"] else FAIL))
     return rows
 
 

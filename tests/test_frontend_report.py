@@ -6,6 +6,7 @@ import gzip
 import json
 import stat
 import subprocess
+import threading
 from contextlib import closing
 from types import SimpleNamespace
 
@@ -71,11 +72,17 @@ def test_build_check_without_dist_says_not_built(tmp_path):
     assert frontend_report._build_row(build)[1:] == ("not built (no web/dist/index.html)", frontend_report._build_row(build)[2], "FAIL")
 
 
-def test_bundle_over_budget_fails(tmp_path, monkeypatch):
+def test_only_a_build_run_by_the_report_passes(tmp_path, monkeypatch):
     fake_dist(tmp_path)
-    assert frontend_report.build_check(tmp_path)["passed"] is True
+    on_disk = frontend_report.build_check(tmp_path)
+    assert on_disk["passed"] is False and on_disk["within_budget"] is True
+    assert frontend_report._build_row(on_disk)[3] == "CHECK BY HAND" and "run with --build" in frontend_report._build_row(on_disk)[1]
+    monkeypatch.setattr(frontend_report, "run_build", lambda web_dir: {"ran": True, "ok": True, "seconds": 4.2, "ts_errors": 0, "error": None})
+    rebuilt = frontend_report.build_check(tmp_path, build=True)
+    assert rebuilt["passed"] is True and frontend_report._build_row(rebuilt)[3] == "PASS"
     monkeypatch.setattr(config, "FRONTEND_FIRST_LOAD_JS_KB", 0)
-    assert frontend_report.build_check(tmp_path)["passed"] is False
+    assert frontend_report._build_row(frontend_report.build_check(tmp_path, build=True))[3] == "FAIL"
+    assert frontend_report._build_row(frontend_report.build_check(tmp_path))[3] == "FAIL"
 
 
 def test_run_build_counts_typescript_errors(tmp_path, monkeypatch):
@@ -270,3 +277,23 @@ def test_titles_with_a_pipe_keep_the_table_intact():
 def test_an_empty_view_is_labelled(conn, client):
     row = frontend_report.parity(conn, client, "flood", {"since": "7d", "hazard": ["tsunami"], "min_severity": 0.99}, 0)
     assert row["events_geojson"] == 0 and "view is empty" in frontend_report._parity_row(row)[1]
+
+
+def test_a_failed_forecast_shows_its_error(client):
+    pin = frontend_report.sample_pin(StubClient(client, 400, '{"detail": "lat out of range"}'))
+    assert "HTTP 400: lat out of range after" in frontend_report._pin_rows(pin)[1][1]
+
+
+def test_a_crash_inside_the_api_is_a_fail_row_not_a_crash(ready, tmp_path, monkeypatch):
+    def broken_in_the_server(*args, **kwargs) -> dict:
+        if threading.current_thread() is not threading.main_thread():  # TestClient serves on its own thread
+            raise KeyError("boom")
+        return {"features": []}
+
+    monkeypatch.setattr(api, "events_geojson", broken_in_the_server)
+    monkeypatch.setattr(frontend_report, "export_count", lambda conn, view: 0)
+    client = TestClient(create_app(ready), raise_server_exceptions=False, base_url="http://127.0.0.1:8000")
+    assert frontend_report.sample_pin(client)["event"] is None
+    with closing(db.connect_readonly(ready)) as conn:
+        row = frontend_report.parity(conn, client, "default", {"since": "7d"}, None)
+    assert row["http"] is None and row["verdict"] == "FAIL" and "API error" in frontend_report._parity_row(row)[1]
