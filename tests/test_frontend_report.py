@@ -293,7 +293,23 @@ def test_a_crash_inside_the_api_is_a_fail_row_not_a_crash(ready, tmp_path, monke
     monkeypatch.setattr(api, "events_geojson", broken_in_the_server)
     monkeypatch.setattr(frontend_report, "export_count", lambda conn, view: 0)
     client = TestClient(create_app(ready), raise_server_exceptions=False, base_url="http://127.0.0.1:8000")
-    assert frontend_report.sample_pin(client)["event"] is None
+    pin = frontend_report.sample_pin(client)
+    assert pin["event"] is None and frontend_report._pin_rows(pin)[0][1] == "GET /events.geojson answered HTTP 500"
     with closing(db.connect_readonly(ready)) as conn:
         row = frontend_report.parity(conn, client, "default", {"since": "7d"}, None)
     assert row["http"] is None and row["verdict"] == "FAIL" and "API error" in frontend_report._parity_row(row)[1]
+
+
+class BrokenDocuments(StubClient):
+    """Answers /documents with a server error and everything else from the real client."""
+
+    def get(self, url: str, params: dict | None = None):
+        if url.endswith("/documents"):
+            return httpx.Response(500, text="Internal Server Error")
+        return self.client.get(url, params=params)
+
+
+def test_a_broken_documents_endpoint_fails_the_pin_row(client):
+    pin = frontend_report.sample_pin(BrokenDocuments(client, 200, ""), network=False)
+    row = frontend_report._pin_rows(pin)[0]
+    assert row[3] == "FAIL" and "documents answered HTTP 500" in row[1]

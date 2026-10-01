@@ -138,14 +138,15 @@ def sample_pin(client, network: bool = True) -> dict:
     features = response.json()["features"] if response.status_code == 200 else []
     pins = [f for f in features if f["geometry"]["type"] == "Point"]
     if not pins:
-        return {"event": None}
+        return {"event": None, "error": None if response.status_code == 200 else f"GET /events.geojson answered HTTP {response.status_code}"}
     pin = max(pins, key=lambda f: (f["properties"]["doc_count"] or 0) + (f["properties"]["post_count"] or 0) + (f["properties"]["video_count"] or 0))
     props = pin["properties"]
     lon, lat = pin["geometry"]["coordinates"]
     documents = client.get(f"/events/{props['event_id']}/documents")
     items = documents.json() if documents.status_code == 200 else []
     news = sum(1 for item in items if item["kind"] in NEWS_KINDS)
-    result = {"event": {"event_id": props["event_id"], "title": props["title"], "lat": lat, "lon": lon}, "news": news, "posts": len(items) - news}
+    error = None if documents.status_code == 200 else f"GET /events/{{id}}/documents answered HTTP {documents.status_code}"
+    result = {"event": {"event_id": props["event_id"], "title": props["title"], "lat": lat, "lon": lon}, "news": news, "posts": len(items) - news, "error": error}
     if not network:
         return {**result, "forecast": {"ok": False, "skipped": True, "error": "skipped (--no-network)"}}
     started = time.monotonic()
@@ -270,12 +271,16 @@ def _parity_row(row: dict) -> tuple[str, str, str, str]:
 
 def _pin_rows(pin: dict) -> list[tuple[str, str, str, str]]:
     if pin.get("event") is None:
-        return [("Sample pin", "no pin in the default view", "a pin with News, Posts and Weather", FAIL)]
+        return [("Sample pin", pin.get("error") or "no pin in the default view", "a pin with News, Posts and Weather", FAIL)]
     event = pin["event"]
-    measured = f"News {pin['news']}, Posts {pin['posts']} from /events/{{id}}/documents"
-    if pin["news"] + pin["posts"] == 0:
-        measured += " (no pin in the default view has documents; the tabs should say so)"
-    rows = [(f"Sample pin: {_cell(event['title'])} (`{event['event_id']}`)", measured, "the tabs list the same", BY_HAND)]
+    criterion = f"Sample pin: {_cell(event['title'])} (`{event['event_id']}`)"
+    if pin.get("error"):
+        rows = [(criterion, pin["error"], "the tabs list the same", FAIL)]
+    else:
+        measured = f"News {pin['news']}, Posts {pin['posts']} from /events/{{id}}/documents"
+        if pin["news"] + pin["posts"] == 0:
+            measured += " (no pin in the default view has documents; the tabs should say so)"
+        rows = [(criterion, measured, "the tabs list the same", BY_HAND)]
     forecast = pin["forecast"]
     target = f"<= {config.FRONTEND_FORECAST_S:g} s, {config.OPEN_METEO_FORECAST_DAYS} days"
     criterion = f"/forecast at the pin ({event['lat']:.2f}, {event['lon']:.2f})"
