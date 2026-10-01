@@ -59,7 +59,7 @@ export default function Panel({ event, onClose }: Props) {
       className="panel"
       data-collapsed={collapsed}
       aria-labelledby={`${baseId}-title`}
-      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+      onKeyDown={(e) => e.key === 'Escape' && !e.repeat && onClose()}
     >
       <header className="panel-head">
         <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} mark={severityMark(p.severity_label)} size={28} />

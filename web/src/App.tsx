@@ -42,6 +42,7 @@ export default function App() {
   // it opened instead of leaving a dead Back step.
   const shownEventId = useRef(view.eventId)
   const fromHistory = useRef(false)
+  const closing = useRef(false)
   useEffect(() => {
     const query = writeViewState(view)
     const url = `${window.location.pathname}${query}`
@@ -55,6 +56,7 @@ export default function App() {
     // Back changes the selection and the page only: the filters and the map position stay as they are now.
     const onPop = () => {
       fromHistory.current = true
+      closing.current = false
       const popped = readViewState(window.location.search)
       setView((v) => ({ ...v, eventId: popped.eventId, page: popped.page }))
     }
@@ -127,8 +129,14 @@ export default function App() {
       returnFocusTo.current = document.activeElement?.closest('.panel') ? eventId : null
       // Step back past the selections this panel's history holds; the popped entry then clears the selection.
       const depth = selectionDepth()
-      if (depth > 0) window.history.go(-depth)
-      else select(null)
+      // history.go is asynchronous: ignore further closes (a held Escape, a double click) until the step lands.
+      if (closing.current) return
+      if (depth > 0) {
+        closing.current = true
+        window.history.go(-depth)
+      } else {
+        select(null)
+      }
     },
     [select],
   )
@@ -140,15 +148,21 @@ export default function App() {
     const target = row && row.offsetParent !== null ? row : document.querySelector<HTMLElement>('.list-toggle')
     target?.focus()
   }, [view.eventId])
-  const openPage = (page: ViewState['page']) => {
-    window.history.pushState(null, '', window.location.href)
-    setView((v) => ({ ...v, page }))
+  // The About page gets its own history entry (marked ewwAbout); "Back to the map" steps back to the entry it came
+  // from, so it never stacks extra entries and the selection's history depth stays right.
+  const openAbout = () => {
+    window.history.pushState({ ewwAbout: true }, '', window.location.href)
+    setView((v) => ({ ...v, page: 'about' }))
+  }
+  const backToMap = () => {
+    if ((window.history.state as { ewwAbout?: unknown } | null)?.ewwAbout) window.history.back()
+    else setView((v) => ({ ...v, page: 'map' }))
   }
 
   if (view.page === 'about') {
     return (
       <ThemeContext.Provider value={theme}>
-        <About onBack={() => openPage('map')} />
+        <About onBack={backToMap} />
       </ThemeContext.Provider>
     )
   }
@@ -174,7 +188,7 @@ export default function App() {
           onTheme={setTheme}
           onBasemap={setBasemapChoice}
           onRetry={retry}
-          onAbout={() => openPage('about')}
+          onAbout={openAbout}
         />
 
         <Suspense fallback={<div className="map map-loading">Loading the map…</div>}>

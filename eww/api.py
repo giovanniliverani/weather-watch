@@ -430,6 +430,8 @@ def attributions(*, conn: sqlite3.Connection | None = None) -> list[dict]:
     out.append({"id": "nominatim", "name": "Nominatim (OpenStreetMap)", "attribution": config.GEOCODER_ATTRIBUTIONS["nominatim"], "terms_url": "https://operations.osmfoundation.org/policies/nominatim/"})
     out.append({"id": "osm-tiles", "name": "Map tiles", "attribution": "© OpenStreetMap contributors, ODbL", "terms_url": "https://www.openstreetmap.org/copyright"})
     out.append({"id": "openfreemap", "name": "Map tiles (React map)", "attribution": "OpenFreeMap © OpenMapTiles Data from OpenStreetMap", "terms_url": "https://openfreemap.org/"})
+    out.append({"id": "nasa-gibs", "name": "Daily satellite imagery (React map, 'Today from space')", "attribution": "We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS).", "terms_url": "https://nasa-gibs.github.io/gibs-api-docs/"})
+    out.append({"id": "esri-imagery", "name": "Satellite imagery (React map, 'Satellite', when an Esri key is set)", "attribution": "Powered by Esri. Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community", "terms_url": "https://www.esri.com/en-us/legal/terms/full-master-agreement"})
     out.append({"id": "open-meteo", "name": "Open-Meteo", "attribution": config.OPEN_METEO_ATTRIBUTION, "terms_url": "https://open-meteo.com/en/licence"})
     return out
 

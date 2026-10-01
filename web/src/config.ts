@@ -11,8 +11,9 @@ export type Basemap =
 
 const OPENFREEMAP_CREDIT = 'OpenFreeMap © OpenMapTiles Data from OpenStreetMap'
 
-/** NASA GIBS shows the latest complete UTC day, not today's partial one: yesterday in UTC, as YYYY-MM-DD. */
-const GIBS_DAY = new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 10)
+/** NASA GIBS shows the latest complete UTC day, not today's partial one: yesterday in UTC, as YYYY-MM-DD. Before
+ *  03:00 UTC yesterday's last passes may still be processing, so it shows the day before. */
+const GIBS_DAY = new Date(Date.now() - (new Date().getUTCHours() < 3 ? 48 : 24) * 3600 * 1000).toISOString().slice(0, 10)
 const GIBS_DAY_LABEL = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${GIBS_DAY}T00:00:00Z`))
 /** NASA GIBS daily true colour (NOAA-20 VIIRS), EPSG:3857 WMTS; its tile matrix set stops at zoom 9. No key. */
 const GIBS_TODAY: Basemap = {
