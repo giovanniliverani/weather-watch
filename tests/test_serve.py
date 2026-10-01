@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -170,3 +173,26 @@ def test_forecast_upstream_failure_is_502(client, monkeypatch, error):
     response = client.get("/forecast", params={"lat": 1, "lon": 2})
     assert response.status_code == 502
     assert "Open-Meteo" in response.json()["detail"]
+
+
+def test_concurrent_forecast_misses_make_one_upstream_call(client, monkeypatch):
+    calls: list[tuple[float, float]] = []
+
+    def slow(latitude: float, longitude: float) -> dict:
+        calls.append((latitude, longitude))
+        time.sleep(0.2)
+        return FAKE_FORECAST
+
+    monkeypatch.setattr(weather, "forecast", slow)
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        statuses = list(pool.map(lambda _: client.get("/forecast", params={"lat": 1, "lon": 2}).status_code, range(5)))
+    assert statuses == [200] * 5
+    assert calls == [(1.0, 2.0)]
+
+
+def test_forecast_malformed_reply_is_502(client, monkeypatch):
+    def odd(latitude: float, longitude: float) -> dict:
+        raise TypeError("float() argument must be a string or a real number, not 'list'")
+
+    monkeypatch.setattr(weather, "forecast", odd)
+    assert client.get("/forecast", params={"lat": 1, "lon": 2}).status_code == 502

@@ -87,19 +87,21 @@ def create_app(db_path: Path | None = None, host: str = config.SERVE_HOST) -> Fa
         """Current conditions and the daily forecast at one point, cached for api.FORECAST_CACHE_TTL_S."""
         if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):  # also refuses NaN
             raise HTTPException(status_code=400, detail="lat must be within -90..90 and lon within -180..180")
-        key, now = (round(lat, 4), round(lon, 4)), time.monotonic()
+        key = (round(lat, 4), round(lon, 4))
+        # Held across the upstream call: one Open-Meteo request at a time, so concurrent misses on a point
+        # share one answer and the per-call rate limiters (rebuilt from the provider log) see every call.
         with forecasts_lock:
+            now = time.monotonic()
             for stale in [k for k, (expires, _) in forecasts.items() if expires <= now]:
                 del forecasts[stale]
             if key in forecasts:
                 return forecasts[key][1]
-        try:
-            result = api.forecast(*key)
-        except (httpx.HTTPError, RuntimeError, ValueError) as exc:  # transport, status or rate limit, not JSON
-            raise HTTPException(status_code=502, detail=f"Open-Meteo unavailable: {exc}") from exc
-        with forecasts_lock:
-            forecasts[key] = (now + api.FORECAST_CACHE_TTL_S, result)
-        return result
+            try:
+                result = api.forecast(*key)
+            except (httpx.HTTPError, RuntimeError, ValueError, TypeError) as exc:  # transport, status or rate limit, not JSON, odd shape
+                raise HTTPException(status_code=502, detail=f"Open-Meteo unavailable: {exc}") from exc
+            forecasts[key] = (time.monotonic() + api.FORECAST_CACHE_TTL_S, result)
+            return result
 
     @app.get("/health")
     def health() -> dict:
