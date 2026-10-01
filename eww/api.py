@@ -22,7 +22,7 @@ from datetime import datetime
 from typing import Iterable
 
 from eww import collectors, config, db, embed, events, heartbeat, weather
-from eww.clock import now_utc, parse_when, to_iso
+from eww.clock import now_utc, parse_iso, parse_when, to_iso
 
 HAZARD_TYPES: list[str] = list(config.HAZARD_TYPES)
 EMS_SOURCE_ID = "copernicus"  # ems_activation is True when a Copernicus EMS activation sits on the event
@@ -53,8 +53,8 @@ EVENT_PROPERTIES = (
 )
 FOOTPRINT_PROPERTIES = ("event_id", "role", "observed_at", "source_id")
 FOOTPRINT_ROLES = ("footprint", "track", "impact_area")
-META_KEYS = ("data_as_of", "last_collector_run_at", "missed_runs_7d", "expected_runs_7d", "generated_at", "filters_applied")
-# Thresholds for the viewer's status strip (the viewer imports only this module).
+META_KEYS = ("data_as_of", "last_collector_run_at", "missed_runs_7d", "expected_runs_7d", "pipeline_stale", "generated_at", "filters_applied")
+# Thresholds for the status strip: pipeline_stale is true past either (app.py still reads them directly).
 STATUS_RED_MISSED_RUNS = config.STATUS_RED_MISSED_RUNS
 STATUS_RED_STALE_HOURS = config.STATUS_RED_STALE_HOURS
 
@@ -293,11 +293,15 @@ def heartbeat_meta(*, conn: sqlite3.Connection | None = None, now: datetime | No
     finally:
         if own:
             conn.close()
+    last_run = beat["last_collector_run_at"]
+    hours_since_run = None if last_run is None else (now - parse_iso(last_run)).total_seconds() / 3600
+    stale = hours_since_run is None or hours_since_run > STATUS_RED_STALE_HOURS or beat["missed_runs_7d"] > STATUS_RED_MISSED_RUNS
     return {
         "data_as_of": data_as_of,
-        "last_collector_run_at": beat["last_collector_run_at"],
+        "last_collector_run_at": last_run,
         "missed_runs_7d": beat["missed_runs_7d"],
         "expected_runs_7d": beat["expected_runs_7d"],
+        "pipeline_stale": stale,
         "generated_at": to_iso(now),
     }
 

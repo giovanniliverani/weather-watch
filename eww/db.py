@@ -1,6 +1,7 @@
-"""SQLite access: one connection helper, the idempotent schema bootstrap, and forward migrations.
+"""SQLite access: the connection helpers, the idempotent schema bootstrap, and forward migrations.
 
-`connect()` always sets WAL journaling and foreign-key enforcement. `init_db()` applies
+`connect()` always sets WAL journaling and foreign-key enforcement; `connect_readonly()` is for
+`eww serve`, which never writes and never migrates. `init_db()` applies
 `sql/schema.sql` only when `schema_version` is empty, then applies any `sql/migrations/NNNN_*.sql`
 newer than the recorded version, then upserts the seed rows of `source` from `eww.config.SOURCES`.
 Safe to run on every start.
@@ -32,6 +33,30 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
     return conn
+
+
+def connect_readonly(path: str | Path | None = None) -> sqlite3.Connection:
+    """Open an existing SQLite file read-only (URI mode=ro); it reads alongside a WAL writer and never migrates."""
+    db_path = Path(path) if path is not None else config.DB_PATH
+    conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA query_only = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    return conn
+
+
+def require_current_schema(path: str | Path | None = None) -> None:
+    """Raise RuntimeError with the command to run when the file is missing or behind SCHEMA_VERSION."""
+    db_path = Path(path) if path is not None else config.DB_PATH
+    if not db_path.is_file():
+        raise RuntimeError(f"no database at {db_path}: run `uv run eww init-db` (or `uv run eww sync`) first")
+    conn = connect_readonly(db_path)
+    try:
+        version = schema_version(conn)
+    finally:
+        conn.close()
+    if version is None or version < SCHEMA_VERSION:
+        raise RuntimeError(f"{db_path} is at schema {version or 0}, this code needs {SCHEMA_VERSION}: run `uv run eww init-db` (or `uv run eww sync`) first")
 
 
 def schema_applied(conn: sqlite3.Connection) -> bool:

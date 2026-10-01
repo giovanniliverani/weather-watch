@@ -1,8 +1,9 @@
 """`eww serve`: the read-only HTTP API the React frontend in web/ talks to (M7).
 
 Every route wraps one eww.api function and adds no logic: filters, severity and merge pointers stay
-in eww.api. There is no authentication, so it binds to 127.0.0.1 unless told otherwise. Forecasts
-are cached in memory only, never in SQLite.
+in eww.api. There is no authentication, so it binds to 127.0.0.1 unless told otherwise. It opens
+SQLite read-only and refuses a database whose schema is behind the code. Forecasts are cached in
+memory only, never in SQLite.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ def parse_bbox(value: str | None) -> list[float] | None:
 
 def create_app(db_path: Path | None = None, host: str = config.SERVE_HOST) -> FastAPI:
     """Build the API over the SQLite file at `db_path` (default: config.DB_PATH), answering `host` and localhost."""
+    db.require_current_schema(db_path)  # serve never migrates: a database behind the code is refused here
     app = FastAPI(title="Extreme Weather Watch API", version=config.VERSION)
     app.add_middleware(CORSMiddleware, allow_origins=config.SERVE_CORS_ORIGINS, allow_methods=["GET"])
 
@@ -53,8 +55,8 @@ def create_app(db_path: Path | None = None, host: str = config.SERVE_HOST) -> Fa
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
 
     def connect() -> closing[sqlite3.Connection]:
-        # One connection per request: FastAPI runs these handlers on worker threads.
-        return closing(db.connect(db_path))
+        # One read-only connection per request: FastAPI runs these handlers on worker threads.
+        return closing(db.connect_readonly(db_path))
 
     @app.get("/events.geojson")
     def events_geojson(
@@ -87,6 +89,11 @@ def create_app(db_path: Path | None = None, host: str = config.SERVE_HOST) -> Fa
         """Every source and service the map shows, with its credit line and terms page."""
         with connect() as conn:
             return api.attributions(conn=conn)
+
+    @app.get("/hazards")
+    def hazards() -> list[str]:
+        """The hazard_type ids in config order, for the frontend's hazard filter."""
+        return list(api.HAZARD_TYPES)
 
     forecasts: dict[tuple[float, float], tuple[float, dict]] = {}  # (lat, lon) -> (expires at, forecast); memory only
     forecasts_lock = threading.Lock()

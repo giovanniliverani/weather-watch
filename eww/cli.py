@@ -295,8 +295,12 @@ def serve(
 
     from eww.serve import create_app
 
-    _open().close()  # apply the schema and pending migrations once, before the first request
-    uvicorn.run(create_app(_state["db"], host), host=host, port=port)
+    try:
+        api_app = create_app(_state["db"], host)
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    uvicorn.run(api_app, host=host, port=port)
 
 
 # ----------------------------------------------------------------------------- doctor

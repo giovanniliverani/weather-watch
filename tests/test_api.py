@@ -1,12 +1,14 @@
 """The exporter's output carries exactly the contract's keys (golden example: tests/fixtures/events.geojson)."""
 
 import json
+from datetime import timedelta
 
 import pytest
 from typer.testing import CliRunner
 
 from eww import api, resolve
 from eww.cli import app
+from eww.clock import parse_iso, to_iso
 from tests.conftest import load_json
 from tests.test_ingest_resolve import ingest_fixtures
 
@@ -101,6 +103,23 @@ def test_out_of_range_filters_raise(conn, data_dir):
         with pytest.raises(ValueError):
             api.events_geojson(SINCE, conn=conn, **kwargs)
     assert api.events_geojson(SINCE, min_severity=1.0, limit=None, conn=conn)["type"] == "FeatureCollection"
+
+
+@pytest.mark.parametrize(
+    ("hours_ago", "missed", "stale"),
+    [
+        (api.STATUS_RED_STALE_HOURS, api.STATUS_RED_MISSED_RUNS, False),
+        (api.STATUS_RED_STALE_HOURS + 0.01, 0, True),
+        (0, api.STATUS_RED_MISSED_RUNS + 1, True),
+        (None, 0, True),
+    ],
+)
+def test_pipeline_stale_follows_the_status_strip_rule(conn, monkeypatch, hours_ago, missed, stale):
+    now = parse_iso("2026-09-16T12:00:00Z")
+    last_run = None if hours_ago is None else to_iso(now - timedelta(hours=hours_ago))
+    monkeypatch.setattr(api.heartbeat, "summary", lambda conn, now: {"last_collector_run_at": last_run, "missed_runs_7d": missed, "expected_runs_7d": 56})
+    assert api.heartbeat_meta(conn=conn, now=now)["pipeline_stale"] is stale
+    assert api.events_geojson(SINCE, conn=conn, now=now)["meta"]["pipeline_stale"] is stale
 
 
 def test_cli_export_reports_bad_filters_without_a_traceback(tmp_path):

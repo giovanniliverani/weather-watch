@@ -229,9 +229,12 @@ events_geojson(since, until=None, hazard=None, min_severity=0.0, status=None,
                bbox=None, include_footprints=False, limit=2000) -> FeatureCollection
 
 FeatureCollection.meta   (a top-level "meta" member; RFC 7946 allows foreign members)
-  data_as_of, last_collector_run_at, missed_runs_7d, expected_runs_7d, generated_at, filters_applied
+  data_as_of, last_collector_run_at, missed_runs_7d, expected_runs_7d, pipeline_stale, generated_at,
+  filters_applied
   (last_collector_run_at is the last run that produced data; expected_runs_7d was added in M1 so the
-   viewer can say "n of m runs missed")
+   viewer can say "n of m runs missed"; pipeline_stale (bool, M7) is true when missed_runs_7d >
+   STATUS_RED_MISSED_RUNS or the last run is missing or older than STATUS_RED_STALE_HOURS, so the
+   status strip turns red without computing it)
 
 Feature, one per event; geometry = Point at the primary centroid
   properties:
@@ -835,7 +838,7 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 
 **Decided 2026-10-01.** M7 comes before M6, and `eww serve` is built here as its first piece. The side panel has four tabs: Details, News, Posts and Weather. Posts holds posts, photos and videos together: each links to the original, with its photo or video shown from its URL where possible.
 
-**In scope.** `eww serve` (FastAPI, bound to 127.0.0.1, read-only) as the only thing the frontend talks to: `GET /events.geojson` with the contract's filters, `GET /events/{event_id}/documents` wrapping `event_documents()`, `GET /attributions`, `GET /forecast?lat=&lon=` wrapping `forecast()` (cached in memory for 30 minutes, never stored), `GET /health` from `heartbeat_meta()`, CORS for the Vite dev server only. Three read-only additions to `eww.api` serve it: `heartbeat_meta()`, `event_exists()` (for a 404 on an unknown event) and range checks on the filters (§2). A Vite + React + TypeScript app in `web/`: MapLibre GL JS over free tiles (OpenStreetMap raster with attribution, or OpenFreeMap vector tiles, terms **verify**), pins coloured by hazard with clustering, a footprints toggle, geolocation, filters (hazard, window, minimum severity) reflected in the URL, a status strip from `meta`, a side panel with the Details, News, Posts and Weather tabs, an About page from `/attributions`, a layout that works on a phone. Designed with impeccable (`init` and `shape` before code, `audit` and `polish` after; PRODUCT.md and DESIGN.md committed) and built to the react-best-practices rules (no request waterfalls, the map library lazy-loaded, a small bundle). `eww report frontend` writes `docs/m7.md`: pin-count parity between the API and `events_geojson()`, the built bundle's size, the audit result.
+**In scope.** `eww serve` (FastAPI, bound to 127.0.0.1, read-only) as the only thing the frontend talks to: `GET /events.geojson` with the contract's filters, `GET /events/{event_id}/documents` wrapping `event_documents()`, `GET /attributions`, `GET /forecast?lat=&lon=` wrapping `forecast()` (cached in memory for 30 minutes, never stored), `GET /health` from `heartbeat_meta()` (with `pipeline_stale`, the status strip's red rule), `GET /hazards` (the hazard_type ids in config order, so the filter does not copy the list), CORS for the Vite dev server only. Three read-only additions to `eww.api` serve it: `heartbeat_meta()`, `event_exists()` (for a 404 on an unknown event) and range checks on the filters (§2). A Vite + React + TypeScript app in `web/`: MapLibre GL JS over free tiles (OpenStreetMap raster with attribution, or OpenFreeMap vector tiles, terms **verify**), pins coloured by hazard with clustering, a footprints toggle, geolocation, filters (hazard, window, minimum severity) reflected in the URL, a status strip from `meta`, a side panel with the Details, News, Posts and Weather tabs, an About page from `/attributions`, a layout that works on a phone. Designed with impeccable (`init` and `shape` before code, `audit` and `polish` after; PRODUCT.md and DESIGN.md committed) and built to the react-best-practices rules (no request waterfalls, the map library lazy-loaded, a small bundle). `eww report frontend` writes `docs/m7.md`: pin-count parity between the API and `events_geojson()`, the built bundle's size, the audit result.
 
 **Out.** Hosting the React build (M6's private Streamlit copy stays the phone path until the API has authentication), write actions (accept and reject stay in the Streamlit Review tab because the API is read-only), offline tiles, anything in the pipeline.
 
@@ -1415,12 +1418,14 @@ measures it (`eww report frontend`), in the shape of docs/m2.md — and update d
 eww/config.py has milestone_doc(n).
 
 TASK
-1. `eww serve`: FastAPI + uvicorn on 127.0.0.1:8000 (the API has no authentication). GET
+1. `eww serve`: FastAPI + uvicorn on 127.0.0.1:8000 (the API has no authentication). It opens SQLite
+   read-only and never migrates: a database whose schema is behind the code is refused at start. GET
    /events.geojson maps the query parameters (since, until, hazard repeated, min_severity, status
    repeated, bbox as min_lon,min_lat,max_lon,max_lat, include_footprints, limit) onto events_geojson();
    GET /events/{event_id}/documents onto event_documents(), 404 for an unknown id; GET /attributions
    onto attributions(); GET /forecast?lat=&lon= onto forecast(), cached in memory for
-   FORECAST_CACHE_TTL_S and never stored; GET /health returns heartbeat_meta(). CORS for the Vite dev
+   FORECAST_CACHE_TTL_S and never stored; GET /health returns heartbeat_meta(), including
+   pipeline_stale; GET /hazards returns the hazard_type ids in config order. CORS for the Vite dev
    server only, GET only. No logic of its own: every filter and every range check is applied inside
    eww.api, and its ValueError becomes HTTP 400.
 2. Design before code: run the impeccable skill's `init` (PRODUCT.md from README.md and

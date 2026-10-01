@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import sqlite3
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from typer.testing import CliRunner
 
-from eww import api, config, weather
+from eww import api, config, db, weather
+from eww.cli import app as cli_app
 from eww.clock import parse_iso
 from eww.ratelimit import RateLimitExceeded
 from eww.serve import create_app
@@ -104,6 +109,84 @@ def test_health_is_the_heartbeat_meta(client):
     assert set(body) == set(api.META_KEYS) - {"filters_applied"}
     assert body["generated_at"] == NOW
     assert body["data_as_of"]
+
+
+def test_hazards_are_the_config_list_in_order(client):
+    assert client.get("/hazards").json() == list(config.HAZARD_TYPES)
+    assert client.get("/hazards", headers={"Sec-Fetch-Site": "cross-site", "Origin": "https://example.com"}).status_code == 403
+
+
+def test_health_carries_pipeline_stale(client):
+    assert isinstance(client.get("/health").json()["pipeline_stale"], bool)
+
+
+# --------------------------------------------------------------------------- read-only database
+def test_serve_never_writes_the_database(conn, data_dir, tmp_path, monkeypatch):
+    prepared(conn, data_dir)
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.close()
+    path = tmp_path / "test.sqlite"
+    versions, mtime = _versions(path), path.stat().st_mtime_ns
+    monkeypatch.setattr(api, "now_utc", lambda: parse_iso(NOW))
+    client = TestClient(create_app(path), base_url="http://127.0.0.1:8000")
+    event_id = client.get("/events.geojson", params={"since": "36500d"}).json()["features"][0]["properties"]["event_id"]
+    for route in ("/health", "/attributions", "/hazards", f"/events/{event_id}/documents"):
+        assert client.get(route).status_code == 200
+    assert _versions(path) == versions
+    assert path.stat().st_mtime_ns == mtime
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        db.connect_readonly(path).execute("DELETE FROM event")
+
+
+def _versions(path) -> list[tuple]:
+    with closing(db.connect_readonly(path)) as reader:
+        return [tuple(row) for row in reader.execute("SELECT version, applied_at FROM schema_version ORDER BY version")]
+
+
+def test_outdated_schema_is_refused(conn, tmp_path):
+    conn.execute("UPDATE schema_version SET version = 3")
+    conn.commit()
+    path = tmp_path / "test.sqlite"
+    with pytest.raises(RuntimeError, match=rf"at schema 3, this code needs {db.SCHEMA_VERSION}: run `uv run eww init-db`"):
+        create_app(path)
+    result = CliRunner().invoke(cli_app, ["--db", str(path), "serve"])
+    assert result.exit_code == 1
+    assert "at schema 3" in result.output and "Traceback" not in result.output
+    assert _versions(path)[-1][0] == 3  # nothing migrated it
+
+
+def test_missing_database_is_refused(tmp_path):
+    with pytest.raises(RuntimeError, match="no database at"):
+        create_app(tmp_path / "absent.sqlite")
+    assert not (tmp_path / "absent.sqlite").exists()
+
+
+def test_reads_while_a_writer_commits_in_wal_mode(client, tmp_path):
+    path = tmp_path / "test.sqlite"
+    writer = db.connect(path)
+    writer.execute("CREATE TABLE scratch (n INTEGER)")
+    writer.commit()
+    stop = threading.Event()
+
+    def write() -> None:
+        with closing(db.connect(path)) as own:  # a connection belongs to the thread that opened it
+            for n in range(300):
+                own.execute("INSERT INTO scratch VALUES (?)", (n,))
+                own.commit()
+        stop.set()
+
+    thread = threading.Thread(target=write)
+    thread.start()
+    statuses = []
+    while not stop.is_set():
+        statuses.append(client.get("/health").status_code)
+    thread.join()
+    writer.execute("BEGIN")
+    writer.execute("INSERT INTO scratch VALUES (-1)")  # an open write transaction must not block readers
+    statuses.append(client.get("/health").status_code)
+    writer.rollback()
+    writer.close()
+    assert statuses and set(statuses) == {200}
 
 
 def test_cors_allows_only_the_dev_server(client):
