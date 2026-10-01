@@ -117,7 +117,7 @@ function addLayers(map: MapLibreMap, ground: Ground) {
     source: 'events',
     filter: ['!', ['has', 'point_count']],
     layout: {
-      // Images are drawn on demand (styleimagemissing below), so any hazard_type the API sends gets a symbol.
+      // Images are drawn on demand (the missing-image resolver below), so any hazard_type the API sends gets a symbol.
       'icon-image': [
         'concat',
         `hz-${ground}-`,
@@ -170,9 +170,10 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     map.addControl(new GeolocateControl({ positionOptions: { enableHighAccuracy: false }, trackUserLocation: false }), 'top-right')
     mapRef.current = map
 
-    map.on('styleimagemissing', (e) => {
-      const match = /^hz-(dark|light)-(.+)-(active|ended)-(none|orange|red)$/.exec(e.id)
-      if (!match || map.hasImage(e.id)) return
+    // Symbols are drawn the first time a feature needs one; MapLibre waits for this before giving up on the image.
+    map.setMissingStyleImageResolver((id) => {
+      const match = /^hz-(dark|light)-(.+)-(active|ended)-(none|orange|red)$/.exec(id)
+      if (!match || map.hasImage(id)) return
       const [, ground, hazard, state, mark] = match as unknown as [string, Ground, string, string, SeverityMark]
       const ended = state === 'ended'
       const ratio = window.devicePixelRatio || 1
