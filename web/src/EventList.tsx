@@ -2,6 +2,7 @@
 import { memo } from 'react'
 import { hazardName } from './format'
 import HazardSymbol from './HazardSymbol'
+import { severityMark } from './symbols'
 import type { EventFeature } from './types'
 
 interface Props {
@@ -17,7 +18,7 @@ function EventList({ points, selectedId, onSelect }: Props) {
       {points.map(({ properties: p }) => (
         <li key={p.event_id}>
           <button type="button" aria-current={p.event_id === selectedId ? 'true' : undefined} onClick={() => onSelect(p.event_id)}>
-            <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} size={16} />
+            <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} mark={severityMark(p.severity_label)} size={16} />
             <span className="event-title">{p.title}</span>
             <span className="event-meta">
               {hazardName(p.hazard_type)} · {p.severity_label ?? 'severity not stated'}

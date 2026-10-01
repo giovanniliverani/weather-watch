@@ -354,10 +354,19 @@ button {
   font-size: 0.87rem;
 }
 
-.legend-foot .quiet {
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.key li {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
 
 .check {

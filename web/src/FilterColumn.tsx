@@ -139,9 +139,17 @@ export default function FilterColumn(props: Props) {
             })}
           </ul>
           <div className="legend-foot">
-            <span className="quiet">
-              <HazardSymbol hazard="wildfire" ended size={14} /> hollow = ended
-            </span>
+            <ul className="key quiet" aria-label="How symbols read">
+              <li>
+                <HazardSymbol hazard="other" ended size={14} /> ended
+              </li>
+              <li>
+                <HazardSymbol hazard="other" mark="orange" size={14} /> Orange
+              </li>
+              <li>
+                <HazardSymbol hazard="other" mark="red" size={14} /> Red
+              </li>
+            </ul>
             {filters.hazards.length ? (
               <button type="button" className="link" onClick={() => onChange({ ...filters, hazards: [] })}>
                 Show all

@@ -14,7 +14,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { useEffect, useRef } from 'react'
 import type { Basemap } from './config'
-import { drawSymbol, iconId, type Ground } from './symbols'
+import { BOX, drawSymbol, iconId, MARK_INK, type Ground, type SeverityMark } from './symbols'
 import type { EventFeature, FootprintFeature } from './types'
 import type { MapView as View } from './url'
 
@@ -38,13 +38,14 @@ interface Props {
 
 setWorkerUrl(workerUrl)
 
-const SYMBOL_PX = 22
+/** A symbol's whole box on the map, severity rings included; the disc inside is 22 px. */
+const SYMBOL_PX = (22 * BOX) / 24
 /** Fonts for the cluster counts; OpenFreeMap serves Noto Sans Regular, also to raster-only styles. */
 const GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf'
 /** Cluster discs, counts, the selection ring and footprints, per basemap ground. */
 const CHROME: Record<Ground, { ink: string; disc: string }> = {
-  dark: { ink: '#e8e8e8', disc: '#212121' },
-  light: { ink: '#1b1b1b', disc: '#ffffff' },
+  dark: { ink: MARK_INK.dark, disc: '#212121' },
+  light: { ink: MARK_INK.light, disc: '#ffffff' },
 }
 
 /** A basemap as something MapLibre can load: a style URL, or a one-layer style around raster tiles. */
@@ -107,7 +108,8 @@ function addLayers(map: MapLibreMap, ground: Ground) {
     type: 'circle',
     source: 'events',
     filter: ['==', ['get', 'event_id'], ''],
-    paint: { 'circle-opacity': 0, 'circle-radius': 16, 'circle-stroke-color': ink, 'circle-stroke-width': 2.5 },
+    // Outside the widest severity ring, so a selected Red event still reads as selected.
+    paint: { 'circle-opacity': 0, 'circle-radius': 18, 'circle-stroke-color': ink, 'circle-stroke-width': 2.5 },
   })
   map.addLayer({
     id: 'event-points',
@@ -116,7 +118,16 @@ function addLayers(map: MapLibreMap, ground: Ground) {
     filter: ['!', ['has', 'point_count']],
     layout: {
       // Images are drawn on demand (styleimagemissing below), so any hazard_type the API sends gets a symbol.
-      'icon-image': ['concat', `hz-${ground}-`, ['get', 'hazard_type'], '-', ['case', ['==', ['get', 'status'], 'ended'], 'ended', 'active']],
+      'icon-image': [
+        'concat',
+        `hz-${ground}-`,
+        ['get', 'hazard_type'],
+        '-',
+        ['case', ['==', ['get', 'status'], 'ended'], 'ended', 'active'],
+        '-',
+        // The severity mark follows the API's own label (symbols.ts severityMark), no thresholds here.
+        ['match', ['get', 'severity_label'], 'Red', 'red', 'Orange', 'orange', 'none'],
+      ],
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
       // Active events above ended ones, more severe above less severe.
@@ -160,11 +171,12 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     mapRef.current = map
 
     map.on('styleimagemissing', (e) => {
-      const match = /^hz-(dark|light)-(.+)-(active|ended)$/.exec(e.id)
+      const match = /^hz-(dark|light)-(.+)-(active|ended)-(none|orange|red)$/.exec(e.id)
       if (!match || map.hasImage(e.id)) return
-      const [, ground, hazard, state] = match as unknown as [string, Ground, string, string]
+      const [, ground, hazard, state, mark] = match as unknown as [string, Ground, string, string, SeverityMark]
+      const ended = state === 'ended'
       const ratio = window.devicePixelRatio || 1
-      map.addImage(iconId(hazard, state === 'ended', ground), drawSymbol(hazard, state === 'ended', ground, SYMBOL_PX, ratio), { pixelRatio: ratio })
+      map.addImage(iconId(hazard, ended, mark, ground), drawSymbol(hazard, ended, mark, ground, SYMBOL_PX, ratio), { pixelRatio: ratio })
     })
 
     // Every style load (the first, and each basemap switch) wipes added layers, so they are put back here.

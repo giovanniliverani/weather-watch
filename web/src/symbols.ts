@@ -44,7 +44,11 @@ export const HAZARDS: Record<string, HazardStyle> = {
   },
   // The chart symbol for snow: a six-armed star.
   coldwave: { colour: { dark: '#a5f3fc', light: '#43929b' }, glyphs: [stroke('M12 5.5v13M6.4 8.75l11.2 6.5M6.4 15.25l11.2-6.5')] },
-  drought: { colour: { dark: '#a9b84e', light: '#7d8d23' }, glyphs: [stroke('M5.5 9h13M8 9l1.6 3.2-.9 3M12.5 9l-1 2.8 1.6 3.4M16.5 9l-1.4 3 .8 3.5')] },
+  // Cracked dry ground: a slab with cracks running through it.
+  drought: {
+    colour: { dark: '#a9b84e', light: '#7d8d23' },
+    glyphs: [stroke('M6.5 7.5h11v9h-11zM6.5 11.5 9.5 12l1.5-4.5M9.5 12l1 4.5M11 7.5l3 3.5 3.5-.5M14 11l-.5 5.5')],
+  },
   landslide: {
     colour: { dark: '#c4925f', light: '#ad7d4b' },
     glyphs: [stroke('M5.5 17.5 17 7'), fill('M11.2 15.2h2.6v2.6h-2.6zM15.2 14h2.2v2.2h-2.2zM14.6 17.6h1.9v1.9h-1.9z')],
@@ -67,19 +71,40 @@ export const SYMBOL_INK = '#101317'
 export const HOLLOW_FILL: Record<Ground, string> = { dark: '#101317', light: '#ffffff' }
 export const GLYPH_STROKE = 1.9
 
-/** The map's icon id for a hazard, state and ground; one image is registered per combination. */
-export const iconId = (hazard: string, ended: boolean, ground: Ground) => `hz-${ground}-${hazard}-${ended ? 'ended' : 'active'}`
+/** Severity, shown as rings outside the disc: one for Orange, two for Red. Read from the API's severity_label
+ *  as given; any other label (Green, an EONET acreage, none) gets no mark. */
+export type SeverityMark = 'none' | 'orange' | 'red'
+export const severityMark = (label: string | null): SeverityMark => (label === 'Red' ? 'red' : label === 'Orange' ? 'orange' : 'none')
+/** The rings' ink: the map's or the page's text colour on that ground. */
+export const MARK_INK: Record<Ground, string> = { dark: '#e8e8e8', light: '#1b1b1b' }
+/** A symbol sits in a 32-unit box: the 24-unit disc and glyph in the middle, the severity rings around it. */
+export const BOX = 32
+const PAD = (BOX - 24) / 2
+const RINGS: Record<SeverityMark, number[]> = { none: [], orange: [13.4], red: [13.4, 15.4] }
+export const ringRadii = (mark: SeverityMark) => RINGS[mark]
 
-/** Draw one symbol onto a canvas for MapLibre (addImage). `size` is in CSS pixels. */
-export function drawSymbol(hazard: string, ended: boolean, ground: Ground, size: number, pixelRatio: number): ImageData {
+/** The map's icon id for one hazard, state, severity mark and ground; one image is registered per combination. */
+export const iconId = (hazard: string, ended: boolean, mark: SeverityMark, ground: Ground) =>
+  `hz-${ground}-${hazard}-${ended ? 'ended' : 'active'}-${mark}`
+
+/** Draw one symbol onto a canvas for MapLibre (addImage). `size` is the whole box in CSS pixels. */
+export function drawSymbol(hazard: string, ended: boolean, mark: SeverityMark, ground: Ground, size: number, pixelRatio: number): ImageData {
   const canvas = document.createElement('canvas')
   canvas.width = canvas.height = Math.round(size * pixelRatio)
   const ctx = canvas.getContext('2d')!
-  const scale = (size * pixelRatio) / 24
-  ctx.scale(scale, scale)
+  ctx.scale((size * pixelRatio) / BOX, (size * pixelRatio) / BOX)
   const { glyphs } = hazardStyle(hazard)
   const colour = hazardStyle(hazard).colour[ground]
 
+  ctx.lineWidth = 1.4
+  ctx.strokeStyle = MARK_INK[ground]
+  for (const radius of RINGS[mark]) {
+    ctx.beginPath()
+    ctx.arc(BOX / 2, BOX / 2, radius, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+
+  ctx.translate(PAD, PAD)
   ctx.beginPath()
   ctx.arc(12, 12, 10.5, 0, Math.PI * 2)
   ctx.fillStyle = ended ? HOLLOW_FILL[ground] : colour

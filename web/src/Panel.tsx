@@ -4,6 +4,7 @@ import { fetchDocuments, fetchForecast } from './api'
 import { formatDay, formatWhen, hazardName, measure, precisionName, sourceName, statusName } from './format'
 import HazardSymbol from './HazardSymbol'
 import { Chevron, Close } from './icons'
+import { severityMark } from './symbols'
 import type { DocumentItem, EventFeature, Forecast } from './types'
 import { useResource, type Resource } from './useResource'
 
@@ -56,7 +57,7 @@ export default function Panel({ event, onClose }: Props) {
       onKeyDown={(e) => e.key === 'Escape' && onClose()}
     >
       <header className="panel-head">
-        <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} size={28} />
+        <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} mark={severityMark(p.severity_label)} size={28} />
         <div>
           <h2 id={`${baseId}-title`} ref={heading} tabIndex={-1}>
             {p.title}
@@ -143,7 +144,7 @@ function Details({ event }: { event: EventFeature }) {
         <dt>Last observed</dt>
         <dd>{formatWhen(p.last_observed_at)}</dd>
         <dt>Country</dt>
-        <dd>{p.country_iso3 ?? 'not stated'}</dd>
+        <dd>{p.country_name ?? p.country_iso3 ?? 'not stated'}</dd>
         <dt>Position</dt>
         <dd>
           {lat.toFixed(3)}, {lon.toFixed(3)} ({precisionName(p.precision)})

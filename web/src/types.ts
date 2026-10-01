@@ -12,6 +12,7 @@ export interface EventProperties {
   severity_score: number | null
   severity_label: string | null
   country_iso3: string | null
+  country_name: string | null
   precision: string
   glide_number: string | null
   source_ids: string[]
