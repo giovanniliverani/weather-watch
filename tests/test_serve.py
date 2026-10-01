@@ -196,3 +196,19 @@ def test_forecast_malformed_reply_is_502(client, monkeypatch):
 
     monkeypatch.setattr(weather, "forecast", odd)
     assert client.get("/forecast", params={"lat": 1, "lon": 2}).status_code == 502
+
+
+@pytest.mark.parametrize(
+    ("headers", "status"),
+    [
+        ({"Sec-Fetch-Site": "cross-site", "Origin": "https://example.com"}, 403),
+        ({"Sec-Fetch-Site": "cross-site"}, 403),
+        ({"Sec-Fetch-Site": "cross-site", "Origin": DEV_ORIGIN}, 200),
+        ({"Sec-Fetch-Site": "same-site", "Origin": "http://localhost:5173"}, 200),
+        ({"Sec-Fetch-Site": "same-origin"}, 200),
+        ({"Sec-Fetch-Site": "none"}, 200),
+        ({}, 200),
+    ],
+)
+def test_cross_site_requests_are_refused(client, headers, status):
+    assert client.get("/health", headers=headers).status_code == status

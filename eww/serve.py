@@ -10,14 +10,16 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import closing
 from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 
 from eww import api, config, db
 
@@ -39,6 +41,13 @@ def create_app(db_path: Path | None = None, host: str = config.SERVE_HOST) -> Fa
     """Build the API over the SQLite file at `db_path` (default: config.DB_PATH), answering `host` and localhost."""
     app = FastAPI(title="Extreme Weather Watch API", version=config.VERSION)
     app.add_middleware(CORSMiddleware, allow_origins=config.SERVE_CORS_ORIGINS, allow_methods=["GET"])
+
+    @app.middleware("http")
+    async def refuse_other_sites(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        # CORS hides answers from other sites but still lets them send requests (e.g. spend the forecast budget).
+        if request.headers.get("sec-fetch-site") == "cross-site" and request.headers.get("origin") not in config.SERVE_CORS_ORIGINS:
+            return JSONResponse({"detail": "cross-site requests are refused"}, status_code=403)
+        return await call_next(request)
     # CORS alone does not stop a page whose DNS name is rebound to 127.0.0.1; checking Host does.
     hosts = [*config.SERVE_ALLOWED_HOSTS, *([host] if host not in ("0.0.0.0", "::", "") else [])]
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
