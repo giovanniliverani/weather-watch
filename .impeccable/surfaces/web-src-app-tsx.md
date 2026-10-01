@@ -18,11 +18,11 @@ The owner, on a laptop, sees what extreme weather happened worldwide in the last
 - Freshness (data as of, missed collector runs) always visible.
 
 ## Layout and interaction
-- Full-screen map. Filters top-left: hazards (from GET /hazards), window presets 1/3/7/14/30/90 days (default 14; any 1-90 from the URL), minimum severity any / 0.33 Green / 0.66 Orange-EMS / 1.0 Red, footprints toggle.
-- Status strip from `meta`: data as of, last run, missed runs n of m; red only from `meta.pipeline_stale`.
+- Full-screen dark map (OpenFreeMap Dark). Filter column on the left: hazards (from GET /hazards), window presets 1/3/7/14/30/90 days (default 14; any 1-90 from the URL), minimum severity any / 0.33 Green / 0.66 Orange-EMS / 1.0 Red, footprints toggle.
+- Data age from `meta` in the filter column, with a STALE stamp only from `meta.pipeline_stale`.
 - Event panel on the right with tabs Details, News (article, report), Posts (post, video; photos inline from their URL, direct video files play, otherwise a thumbnail that links out). Weather: /forecast current conditions and 5 days, with the Open-Meteo credit.
 - About page from /attributions.
-- Pins coloured by hazard, clustered when zoomed out, selected pin marked; footprints optional; geolocation only on press.
+- Events as weather-chart symbols in hazard colours (hollow when ended), clustered as circles with counts, selected event ringed; footprints optional; geolocation only on press.
 - Accessible events list (title, hazard, severity): selecting a row opens the panel and moves the map there.
 - URL holds filters, selected event, centre and zoom; a reload restores them.
 - At 375 px the panel is a bottom sheet and the filters fold into a top bar.
@@ -36,7 +36,14 @@ About 650 events in 14 days and 1,000+ in 30 days; mostly Green wildfires. Few e
 ## Constraints
 No data logic in the frontend. Dependencies: react, react-dom, maplibre-gl only. First load under 600 KB gzipped. WCAG 2.2 AA.
 
+## Direction contract
+THESIS: a night-desk hazard chart. The world sits dark and quiet; every event is a weather-chart symbol in its hazard colour, so shape and colour each identify the hazard alone. It refuses the glass-dashboard default: no translucent panels, no glow, no gradients.
+OWN-WORLD: OpenFreeMap Dark basemap; solid charcoal surfaces (map ground near-black, column and panel one step lighter, hairline rules between). Twelve hazard colours tuned for a dark ground, each drawn as a disc with a chart glyph (filled = active, hollow ring = ended). One periwinkle accent, used only for interactive and selected states; a red STALE stamp only from meta.pipeline_stale. Light ring on the selected event. System UI sans, tabular figures for counts and dates.
+STORY: the owner sees the world's recent hazards at a glance, knows how fresh the data is, narrows by window, hazard and severity, and opens one event's details, news, posts and weather without leaving the map.
+FIRST VIEWPORT: left, a 260 px filter column: app name, data age and STALE stamp, window chips 1-90 d, the legend as hazard filter with a symbol and count per type, severity chips, footprints, "N events · list". Centre, the dark map framed on the pins, zoom and locate controls top-right, the bottom-right kept free above the credit line for a future add-event control. Right, the 380 px event panel when an event is selected. At 375 px: a top bar (name, stamp, Filters button) and a bottom sheet.
+FORM: Giovanni's combination D of the three dealt looks (A survey sheet = assigned, B forecast chart = pick, C dark map = standard), seed d8f0d40b.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+
 ## Open decisions
-- Basemap: OpenFreeMap vector style or OpenStreetMap raster (one constant).
-- Visual world: survey sheet (assigned, seed d8f0d40b), forecast chart (pick), or the standard dark map. No visual styling until chosen; the direction contract is added here then.
 - How the build is served: by `eww serve` or by its own process (API base URL in one constant, asset paths relative).
+- User-contributed events: a later milestone; the map's bottom-right slot stays free for it, with no write code now.
