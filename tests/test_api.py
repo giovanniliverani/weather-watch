@@ -2,6 +2,7 @@
 
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 from eww import api, resolve
@@ -92,3 +93,18 @@ def test_cli_export_prints_json(tmp_path, data_dir):
     assert doctor.exit_code == 0, doctor.output
     assert "duplicate source_record keys (source_id, external_id, external_episode): 0" in doctor.stdout
     assert "unresolved source_record rows (event_id IS NULL): 0" in doctor.stdout
+
+
+def test_out_of_range_filters_raise(conn, data_dir):
+    prepared(conn, data_dir)
+    for kwargs in ({"limit": -1}, {"min_severity": float("nan")}, {"min_severity": 1.5}, {"min_severity": -0.1}, {"bbox": [0, 0, float("inf"), 1]}, {"bbox": [float("nan"), 0, 1, 1]}):
+        with pytest.raises(ValueError):
+            api.events_geojson(SINCE, conn=conn, **kwargs)
+    assert api.events_geojson(SINCE, min_severity=1.0, limit=None, conn=conn)["type"] == "FeatureCollection"
+
+
+def test_cli_export_reports_bad_filters_without_a_traceback(tmp_path):
+    result = CliRunner().invoke(app, ["--db", str(tmp_path / "x.sqlite"), "export", "--limit", "-1"])
+    assert result.exit_code == 2
+    assert "limit must be 0" in result.output
+    assert "Traceback" not in result.output

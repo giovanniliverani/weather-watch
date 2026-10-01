@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from eww import api, config
+from eww import api, config, weather
 from eww.clock import parse_iso
+from eww.ratelimit import RateLimitExceeded
 from eww.serve import create_app
 from tests.test_api import prepared
 
@@ -50,7 +52,17 @@ def test_limit_zero_means_everything_in_the_window(client, conn):
 
 @pytest.mark.parametrize(
     "params",
-    [{"since": "not-a-date"}, {"bbox": "1,2,3"}, {"bbox": "a,b,c,d"}, {"since": "99999999999d"}, {"limit": "99999999999999999999"}],
+    [
+        {"since": "not-a-date"},
+        {"bbox": "1,2,3"},
+        {"bbox": "a,b,c,d"},
+        {"bbox": "nan,0,1,1"},
+        {"since": "99999999999d"},
+        {"limit": "99999999999999999999"},
+        {"limit": "-1"},
+        {"min_severity": "nan"},
+        {"min_severity": "1.5"},
+    ],
 )
 def test_events_bad_input_is_400(client, params):
     response = client.get("/events.geojson", params=params)
@@ -110,3 +122,51 @@ def test_only_get_is_served(client):
 def test_foreign_host_header_is_refused(client):
     assert client.get("/health", headers={"Host": "localhost:8000"}).status_code == 200
     assert client.get("/health", headers={"Host": "evil.example.com"}).status_code == 400
+
+
+# --------------------------------------------------------------------------- /forecast
+FAKE_FORECAST = {"attribution": "test", "current": {"temperature_c": 20.0}, "daily": []}
+
+
+@pytest.fixture
+def forecast_calls(monkeypatch) -> list[tuple[float, float]]:
+    calls: list[tuple[float, float]] = []
+
+    def fake(latitude: float, longitude: float) -> dict:
+        calls.append((latitude, longitude))
+        return FAKE_FORECAST
+
+    monkeypatch.setattr(weather, "forecast", fake)
+    return calls
+
+
+def test_forecast_is_cached_on_rounded_coordinates(client, forecast_calls):
+    first = client.get("/forecast", params={"lat": 45.12341, "lon": 9.18})
+    second = client.get("/forecast", params={"lat": 45.12344, "lon": 9.180001})
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json() == FAKE_FORECAST
+    assert forecast_calls == [(45.1234, 9.18)]
+
+
+def test_forecast_cache_expires(client, forecast_calls, monkeypatch):
+    monkeypatch.setattr(api, "FORECAST_CACHE_TTL_S", 0)
+    client.get("/forecast", params={"lat": 1, "lon": 2})
+    client.get("/forecast", params={"lat": 1, "lon": 2})
+    assert len(forecast_calls) == 2
+
+
+@pytest.mark.parametrize("params", [{"lat": 91, "lon": 0}, {"lat": 0, "lon": -180.5}, {"lat": "nan", "lon": 0}])
+def test_forecast_out_of_range_is_400(client, forecast_calls, params):
+    assert client.get("/forecast", params=params).status_code == 400
+    assert forecast_calls == []
+
+
+@pytest.mark.parametrize("error", [httpx.ConnectTimeout("slow"), RuntimeError("open-meteo status 500"), RateLimitExceeded("budget")])
+def test_forecast_upstream_failure_is_502(client, monkeypatch, error):
+    def fail(latitude: float, longitude: float) -> dict:
+        raise error
+
+    monkeypatch.setattr(weather, "forecast", fail)
+    response = client.get("/forecast", params={"lat": 1, "lon": 2})
+    assert response.status_code == 502
+    assert "Open-Meteo" in response.json()["detail"]

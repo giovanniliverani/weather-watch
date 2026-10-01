@@ -267,9 +267,12 @@ def export(
 ) -> None:
     """Print the GeoJSON FeatureCollection defined in eww/api.py."""
     conn = _open()
-    collection = api.events_geojson(
-        since, until, hazard or None, min_severity, status or None, None, footprints, limit, conn=conn
-    )
+    try:
+        collection = api.events_geojson(
+            since, until, hazard or None, min_severity, status or None, None, footprints, limit, conn=conn
+        )
+    except (ValueError, OverflowError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
     if count:
         typer.echo(sum(1 for f in collection["features"] if f["geometry"]["type"] == "Point"))
         return
@@ -284,7 +287,7 @@ def export(
 
 @app.command()
 def serve(
-    host: str = typer.Option(config.SERVE_HOST, "--host", help="Interface to bind; the API has no authentication, keep it local."),
+    host: str = typer.Option(config.SERVE_HOST, "--host", help="IPv4 address or name to bind (IPv6 literals fail the Host check); the API has no authentication, keep it local."),
     port: int = typer.Option(config.SERVE_PORT, "--port"),
 ) -> None:
     """Serve the read-only HTTP API the React frontend reads (GET /events.geojson, /health, ...)."""

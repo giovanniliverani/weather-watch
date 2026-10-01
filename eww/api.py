@@ -16,6 +16,7 @@ equals the SQL count of events observed in the window.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from datetime import datetime
 from typing import Iterable
@@ -116,8 +117,12 @@ def events_geojson(
     since_iso, until_iso = to_iso(since_dt), (to_iso(until_dt) if until_dt else None)
     hazards, statuses = _as_list(hazard), _as_list(status)
     bbox_list = [float(v) for v in bbox] if bbox is not None else None
-    if bbox_list is not None and len(bbox_list) != 4:
-        raise ValueError("bbox must be [min_lon, min_lat, max_lon, max_lat]")
+    if bbox_list is not None and (len(bbox_list) != 4 or not all(math.isfinite(v) for v in bbox_list)):
+        raise ValueError("bbox must be [min_lon, min_lat, max_lon, max_lat], four finite numbers")
+    if min_severity is not None and not 0.0 <= float(min_severity) <= 1.0:  # also refuses NaN
+        raise ValueError(f"min_severity must be between 0 and 1, got {min_severity}")
+    if limit is not None and int(limit) < 0:
+        raise ValueError(f"limit must be 0 (everything) or more, got {limit}")
 
     own = conn is None
     conn = conn or db.connect()

@@ -1,16 +1,20 @@
 """`eww serve`: the read-only HTTP API the React frontend in web/ talks to (M7).
 
 Every route wraps one eww.api function and adds no logic: filters, severity and merge pointers stay
-in eww.api. There is no authentication, so it binds to 127.0.0.1 unless told otherwise.
+in eww.api. There is no authentication, so it binds to 127.0.0.1 unless told otherwise. Forecasts
+are cached in memory only, never in SQLite.
 """
 
 from __future__ import annotations
 
 import sqlite3
+import threading
+import time
 from contextlib import closing
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -74,6 +78,28 @@ def create_app(db_path: Path | None = None, host: str = config.SERVE_HOST) -> Fa
         """Every source and service the map shows, with its credit line and terms page."""
         with connect() as conn:
             return api.attributions(conn=conn)
+
+    forecasts: dict[tuple[float, float], tuple[float, dict]] = {}  # (lat, lon) -> (expires at, forecast); memory only
+    forecasts_lock = threading.Lock()
+
+    @app.get("/forecast")
+    def forecast(lat: float, lon: float) -> dict:
+        """Current conditions and the daily forecast at one point, cached for api.FORECAST_CACHE_TTL_S."""
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):  # also refuses NaN
+            raise HTTPException(status_code=400, detail="lat must be within -90..90 and lon within -180..180")
+        key, now = (round(lat, 4), round(lon, 4)), time.monotonic()
+        with forecasts_lock:
+            for stale in [k for k, (expires, _) in forecasts.items() if expires <= now]:
+                del forecasts[stale]
+            if key in forecasts:
+                return forecasts[key][1]
+        try:
+            result = api.forecast(*key)
+        except (httpx.HTTPError, RuntimeError, ValueError) as exc:  # transport, status or rate limit, not JSON
+            raise HTTPException(status_code=502, detail=f"Open-Meteo unavailable: {exc}") from exc
+        with forecasts_lock:
+            forecasts[key] = (now + api.FORECAST_CACHE_TTL_S, result)
+        return result
 
     @app.get("/health")
     def health() -> dict:

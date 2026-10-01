@@ -43,7 +43,7 @@ Every command is idempotent: run `collect` twice and the second run reports 0 ne
 
 ### Run the API (M7)
 
-`uv run eww serve` starts the read-only HTTP API the React frontend in `web/` reads, at http://127.0.0.1:8000 (`--host`, `--port` to change; `--db` picks the SQLite file as for every command). It has no authentication, so keep it on 127.0.0.1. Endpoints, all GET: `/events.geojson` (the contract's filters as query parameters: `since=7d&hazard=flood&hazard=wildfire&min_severity=0.66&bbox=min_lon,min_lat,max_lon,max_lat&include_footprints=true&limit=0`, where `limit=0` means every event in the window), `/events/{event_id}/documents`, `/attributions` and `/health` (data freshness and the collector heartbeat). Interactive docs are at http://127.0.0.1:8000/docs. Only the Vite dev server (port 5173) may call it from a browser.
+`uv run eww serve` starts the read-only HTTP API the React frontend in `web/` reads, at http://127.0.0.1:8000 (`--host`, `--port` to change; `--db` picks the SQLite file as for every command). It has no authentication, so keep it on 127.0.0.1. Endpoints, all GET: `/events.geojson` (the contract's filters as query parameters: `since=7d&hazard=flood&hazard=wildfire&min_severity=0.66&bbox=min_lon,min_lat,max_lon,max_lat&include_footprints=true&limit=0`, where `limit=0` means every event in the window), `/events/{event_id}/documents`, `/attributions`, `/forecast?lat=..&lon=..` (Open-Meteo at one point, cached in memory for 30 minutes) and `/health` (data freshness and the collector heartbeat). Out-of-range filters answer 400. Interactive docs are at http://127.0.0.1:8000/docs. Only the Vite dev server (port 5173) may call it from a browser.
 
 ### Collection while the laptop is off (M1)
 
