@@ -1,7 +1,7 @@
 // Every shown event as a list, so each one is reachable by keyboard and screen reader without the map.
 import { memo } from 'react'
-import { HAZARD_COLOURS, OTHER_COLOUR } from './config'
 import { hazardName } from './format'
+import HazardSymbol from './HazardSymbol'
 import type { EventFeature } from './types'
 
 interface Props {
@@ -11,16 +11,17 @@ interface Props {
 }
 
 function EventList({ points, selectedId, onSelect }: Props) {
-  if (points.length === 0) return <p className="hint">No events match these filters.</p>
+  if (points.length === 0) return <p className="quiet">No events match these filters.</p>
   return (
     <ul className="event-list" aria-label="Events shown on the map">
       {points.map(({ properties: p }) => (
         <li key={p.event_id}>
           <button type="button" aria-current={p.event_id === selectedId ? 'true' : undefined} onClick={() => onSelect(p.event_id)}>
-            <span className="swatch" style={{ background: HAZARD_COLOURS[p.hazard_type] ?? OTHER_COLOUR }} aria-hidden="true" />
+            <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} size={16} />
             <span className="event-title">{p.title}</span>
             <span className="event-meta">
               {hazardName(p.hazard_type)} · {p.severity_label ?? 'severity not stated'}
+              {p.status === 'ended' ? ' · ended' : ''}
             </span>
           </button>
         </li>

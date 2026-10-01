@@ -3,11 +3,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import About from './About'
 import { eventsQuery, fetchEvents, fetchHazards } from './api'
-import EventList from './EventList'
-import FiltersForm from './FiltersForm'
+import FilterColumn from './FilterColumn'
 import type { FlyTarget } from './MapView'
 import Panel from './Panel'
-import StatusStrip from './StatusStrip'
 import type { EventFeature, FootprintFeature } from './types'
 import { readViewState, writeViewState, type Filters, type MapView as View, type ViewState } from './url'
 import { useResource } from './useResource'
@@ -34,15 +32,21 @@ export default function App() {
   const events = useResource(eventsQuery(view.filters), (signal) => fetchEvents(view.filters, signal))
   const collection = events.state === 'ready' ? events.data : events.state === 'loading' ? events.previous : undefined
 
-  const { points, footprints, byId } = useMemo(() => {
+  const { points, footprints, byId, counts } = useMemo(() => {
     const points: EventFeature[] = []
     const footprints: FootprintFeature[] = []
+    const counts = new Map<string, number>()
     for (const feature of collection?.features ?? []) {
       // Footprint features carry a `role`; event features do not (the contract in architecture section 2).
-      if ('role' in feature.properties) footprints.push(feature as FootprintFeature)
-      else points.push(feature as EventFeature)
+      if ('role' in feature.properties) {
+        footprints.push(feature as FootprintFeature)
+      } else {
+        const point = feature as EventFeature
+        points.push(point)
+        counts.set(point.properties.hazard_type, (counts.get(point.properties.hazard_type) ?? 0) + 1)
+      }
     }
-    return { points, footprints, byId: new Map(points.map((point) => [point.properties.event_id, point])) }
+    return { points, footprints, counts, byId: new Map(points.map((point) => [point.properties.event_id, point])) }
   }, [collection])
 
   const selected = view.eventId ? byId.get(view.eventId) : undefined
@@ -67,24 +71,19 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <h1>Extreme Weather Watch</h1>
-        <StatusStrip meta={collection?.meta ?? null} shown={collection ? points.length : null} loading={events.state === 'loading'} />
-        <button type="button" className="link" onClick={() => openPage('about')}>
-          About and credits
-        </button>
-      </header>
-
-      <section className="sidebar" aria-label="Filters and events">
-        <FiltersForm filters={view.filters} hazards={hazards} onChange={setFilters} />
-        {events.state === 'error' ? (
-          <p className="error" role="alert">
-            {events.error.message}
-          </p>
-        ) : (
-          <EventList points={points} selectedId={view.eventId} onSelect={selectFromList} />
-        )}
-      </section>
+      <FilterColumn
+        filters={view.filters}
+        hazards={hazards}
+        meta={collection?.meta ?? null}
+        points={points}
+        counts={counts}
+        loading={events.state === 'loading'}
+        error={events.state === 'error' ? events.error : null}
+        selectedId={view.eventId}
+        onChange={setFilters}
+        onSelect={selectFromList}
+        onAbout={() => openPage('about')}
+      />
 
       <Suspense fallback={<div className="map map-loading">Loading the map…</div>}>
         <MapView
@@ -101,8 +100,8 @@ export default function App() {
       {selected ? (
         <Panel event={selected} onClose={() => select(null)} />
       ) : view.eventId && events.state === 'ready' ? (
-        <aside className="panel">
-          <p className="hint">The event in this link is not shown with the current filters.</p>
+        <aside className="panel panel-note">
+          <p className="quiet">The event in this link is not shown with the current filters.</p>
           <button type="button" className="link" onClick={() => select(null)}>
             Clear the selection
           </button>

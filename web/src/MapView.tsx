@@ -6,11 +6,11 @@ import {
   NavigationControl,
   type GeoJSONSource,
   type MapLayerMouseEvent,
-  type StyleSpecification,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef } from 'react'
-import { BASEMAP_STYLE_URL, HAZARD_COLOURS, OTHER_COLOUR } from './config'
+import { BASEMAP_STYLE_URL } from './config'
+import { drawSymbol, iconId } from './symbols'
 import type { EventFeature, FootprintFeature } from './types'
 import type { MapView as View } from './url'
 
@@ -31,9 +31,9 @@ interface Props {
   onMove: (view: View) => void
 }
 
-type CirclePaint = NonNullable<Extract<StyleSpecification['layers'][number], { type: 'circle' }>['paint']>
-// A spread list cannot satisfy the expression's tuple type, hence the cast through unknown.
-const hazardColour = ['match', ['get', 'hazard_type'], ...Object.entries(HAZARD_COLOURS).flat(), OTHER_COLOUR] as unknown as CirclePaint['circle-color']
+const SYMBOL_PX = 22
+const LIGHT = '#e6e8eb'
+const PANEL = '#1f242b'
 
 const collection = <F,>(features: F[]) => ({ type: 'FeatureCollection' as const, features })
 
@@ -44,27 +44,27 @@ function addLayers(map: MapLibreMap) {
     type: 'fill',
     source: 'footprints',
     filter: ['==', ['geometry-type'], 'Polygon'],
-    paint: { 'fill-color': '#d62728', 'fill-opacity': 0.12 },
+    paint: { 'fill-color': LIGHT, 'fill-opacity': 0.08 },
   })
-  map.addLayer({ id: 'footprint-line', type: 'line', source: 'footprints', paint: { 'line-color': '#7a1f1f', 'line-width': 1 } })
+  map.addLayer({
+    id: 'footprint-line',
+    type: 'line',
+    source: 'footprints',
+    paint: { 'line-color': LIGHT, 'line-opacity': 0.55, 'line-width': 1, 'line-dasharray': [3, 2] },
+  })
 
-  map.addSource('events', {
-    type: 'geojson',
-    data: collection([]),
-    cluster: true,
-    clusterMaxZoom: 6,
-    clusterRadius: 36,
-  })
+  map.addSource('events', { type: 'geojson', data: collection([]), cluster: true, clusterMaxZoom: 6, clusterRadius: 36 })
   map.addLayer({
     id: 'clusters',
     type: 'circle',
     source: 'events',
     filter: ['has', 'point_count'],
     paint: {
-      'circle-color': '#ffffff',
-      'circle-stroke-color': '#1a1a1a',
-      'circle-stroke-width': 1,
-      'circle-radius': ['step', ['get', 'point_count'], 11, 10, 14, 50, 18, 200, 23],
+      'circle-color': PANEL,
+      'circle-stroke-color': LIGHT,
+      'circle-stroke-opacity': 0.7,
+      'circle-stroke-width': 1.25,
+      'circle-radius': ['step', ['get', 'point_count'], 12, 10, 15, 50, 19, 200, 24],
     },
   })
   map.addLayer({
@@ -72,28 +72,30 @@ function addLayers(map: MapLibreMap) {
     type: 'symbol',
     source: 'events',
     filter: ['has', 'point_count'],
-    // Noto Sans Regular is one of the fonts the OpenFreeMap styles serve.
-    layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 11, 'text-font': ['Noto Sans Regular'] },
-    paint: { 'text-color': '#1a1a1a' },
-  })
-  map.addLayer({
-    id: 'event-points',
-    type: 'circle',
-    source: 'events',
-    filter: ['!', ['has', 'point_count']],
-    paint: {
-      'circle-color': hazardColour,
-      'circle-radius': 6,
-      'circle-stroke-color': '#ffffff',
-      'circle-stroke-width': 1,
-    },
+    // Noto Sans Regular is the font the OpenFreeMap styles serve.
+    layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-allow-overlap': true },
+    paint: { 'text-color': LIGHT },
   })
   map.addLayer({
     id: 'event-selected',
     type: 'circle',
     source: 'events',
     filter: ['==', ['get', 'event_id'], ''],
-    paint: { 'circle-color': 'rgba(0,0,0,0)', 'circle-radius': 11, 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 2 },
+    paint: { 'circle-opacity': 0, 'circle-radius': 16, 'circle-stroke-color': LIGHT, 'circle-stroke-width': 2.5 },
+  })
+  map.addLayer({
+    id: 'event-points',
+    type: 'symbol',
+    source: 'events',
+    filter: ['!', ['has', 'point_count']],
+    layout: {
+      // Images are drawn on demand (styleimagemissing below), so any hazard_type the API sends gets a symbol.
+      'icon-image': ['concat', 'hz-', ['get', 'hazard_type'], '-', ['case', ['==', ['get', 'status'], 'ended'], 'ended', 'active']],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      // Active events above ended ones, more severe above less severe.
+      'symbol-sort-key': ['+', ['coalesce', ['get', 'severity_score'], 0], ['case', ['==', ['get', 'status'], 'ended'], 0, 10]],
+    },
   })
 }
 
@@ -124,9 +126,17 @@ export default function MapView({ points, footprints, selectedId, initialView, f
       dragRotate: false,
     })
     map.touchZoomRotate.disableRotation()
-    map.addControl(new NavigationControl({ showCompass: false }), 'bottom-right')
-    map.addControl(new GeolocateControl({ positionOptions: { enableHighAccuracy: false }, trackUserLocation: false }), 'bottom-right')
+    // Controls sit top-right: the bottom-right corner is kept free for a later "add an event" control.
+    map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
+    map.addControl(new GeolocateControl({ positionOptions: { enableHighAccuracy: false }, trackUserLocation: false }), 'top-right')
     mapRef.current = map
+
+    map.on('styleimagemissing', (e) => {
+      const match = /^hz-(.+)-(active|ended)$/.exec(e.id)
+      if (!match || map.hasImage(e.id)) return
+      const ratio = window.devicePixelRatio || 1
+      map.addImage(iconId(match[1], match[2] === 'ended'), drawSymbol(match[1], match[2] === 'ended', SYMBOL_PX, ratio), { pixelRatio: ratio })
+    })
 
     map.on('load', () => {
       addLayers(map)
@@ -142,8 +152,7 @@ export default function MapView({ points, footprints, selectedId, initialView, f
     })
 
     map.on('click', 'event-points', (e: MapLayerMouseEvent) => {
-      const feature = e.features?.[0]
-      const id = feature?.properties?.event_id
+      const id = e.features?.[0]?.properties?.event_id
       if (typeof id === 'string') latest.current.onSelect(id)
     })
     map.on('click', 'clusters', async (e: MapLayerMouseEvent) => {
@@ -197,5 +206,5 @@ export default function MapView({ points, footprints, selectedId, initialView, f
     map.easeTo({ center: [flyTo.lon, flyTo.lat], zoom: Math.max(map.getZoom(), 7) })
   }, [flyTo])
 
-  return <div ref={container} className="map" role="region" aria-label="Map of events" />
+  return <div ref={container} className="map" role="region" aria-label="Map of events. Every event is also in the events list." />
 }

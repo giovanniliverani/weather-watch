@@ -2,6 +2,7 @@
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fetchDocuments, fetchForecast } from './api'
 import { formatDay, formatWhen, hazardName, measure, plural } from './format'
+import HazardSymbol from './HazardSymbol'
 import type { DocumentItem, EventFeature, Forecast } from './types'
 import { useResource, type Resource } from './useResource'
 
@@ -42,9 +43,18 @@ export default function Panel({ event, onClose }: Props) {
   return (
     <aside className="panel" aria-labelledby={`${baseId}-title`}>
       <header className="panel-head">
-        <h2 id={`${baseId}-title`}>{p.title}</h2>
-        <button type="button" className="close" onClick={onClose} aria-label="Close event">
-          ×
+        <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} size={28} />
+        <div>
+          <h2 id={`${baseId}-title`}>{p.title}</h2>
+          <p className="quiet">
+            {hazardName(p.hazard_type)} · {p.severity_label ?? 'severity not stated'}
+            {p.status === 'ended' ? ' · ended' : ''}
+          </p>
+        </div>
+        <button type="button" className="icon-button" onClick={onClose} aria-label="Close event">
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+          </svg>
         </button>
       </header>
       <div role="tablist" aria-label="Event information" className="tabs">
