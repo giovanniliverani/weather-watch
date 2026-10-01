@@ -60,6 +60,17 @@ def test_first_load_follows_index_html_and_imports(tmp_path):
     assert "lazy ones included" in bundle["method"]
 
 
+def test_first_load_counts_the_map_worker_named_by_url(tmp_path):
+    # Vite emits the MapLibre worker as its own file that the map chunk names in `new URL(...)`, not in an import.
+    assets = fake_dist(tmp_path)
+    (assets / "map-c3.js").write_text('const w = new URL("maplibre-gl-worker-e5.js", import.meta.url).href;' + "maplibre" * 4000)
+    (assets / "maplibre-gl-worker-e5.js").write_text("worker" * 3000)
+    bundle = frontend_report.first_load_js(tmp_path / "dist")
+    names = [c["name"] for c in bundle["chunks"]]
+    assert "maplibre-gl-worker-e5.js" in names and "unused-d4.js" not in names
+    assert bundle["gzip_bytes"] == sum(c["gzip_bytes"] for c in bundle["chunks"])
+
+
 def test_without_entry_scripts_every_js_file_is_the_upper_bound(tmp_path):
     fake_dist(tmp_path, index_scripts=False)
     bundle = frontend_report.first_load_js(tmp_path / "dist")
