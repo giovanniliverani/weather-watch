@@ -31,7 +31,9 @@ The API only answers browser calls from port 5173, so keep the dev server there.
 | `npm run build` | Type-check, then write the production files to `dist/` |
 | `npm run preview` | Serve `dist/` on port 5173 to try the production build |
 
-The API address is `API_BASE_URL` in `src/config.ts` (override with `VITE_API_BASE_URL` in `web/.env.local`).
+The API address is `API_BASE_URL` in `src/config.ts` (override with `VITE_API_BASE_URL` in `web/.env.local`). To offer another map style, add one entry to `BASEMAPS` there: a vector style URL, or raster tiles (for example satellite) with their credit line.
+
+`audit.json` holds the last design and accessibility audit; `uv run eww report frontend` reads it into `docs/m7.md`.
 
 ## Where things live
 
@@ -42,8 +44,10 @@ The API address is `API_BASE_URL` in `src/config.ts` (override with `VITE_API_BA
 | `src/url.ts` | Reading and writing the URL query |
 | `src/api.ts` | The only code that calls the API, one function per endpoint |
 | `src/types.ts` | The shapes the API returns (docs/architecture.md section 2) |
-| `src/config.ts` | Settings in one place: API address, basemap style, window presets, severity steps |
-| `src/symbols.ts`, `src/HazardSymbol.tsx` | The hazard symbols and colours, drawn once for the map icons and the legend |
+| `src/config.ts` | Settings in one place: API address, the basemap list (one entry per map style), window presets, severity steps |
+| `src/theme.ts` | The dark/light theme and the chosen basemap, remembered per browser (not in the URL) |
+| `src/symbols.ts`, `src/HazardSymbol.tsx` | The hazard symbols: glyph, colour per ground, rings for Orange and Red, hollow when ended; drawn once for the map icons and the legend |
+| `src/icons.tsx` | The interface icons (chevron, close, sun, moon) |
 | `src/MapView.tsx` | The MapLibre map: symbols, clusters, footprints, geolocation |
 | `src/FilterColumn.tsx`, `src/EventList.tsx` | The left column (data age, filters, legend with counts) and the list of shown events |
 | `src/index.css` | The look: dark surfaces, the accent colour, the phone layout |
