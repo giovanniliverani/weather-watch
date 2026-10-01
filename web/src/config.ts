@@ -3,8 +3,8 @@
 /** Where `uv run eww serve` listens. Override with VITE_API_BASE_URL in web/.env.local. */
 export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
-/** The basemap style (MapLibre style JSON URL). Pending the owner's choice of tiles. */
-export const BASEMAP_STYLE_URL: string | null = null
+/** The basemap: an OpenFreeMap vector style (no key; its credit line shows on the map). */
+export const BASEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/positron'
 
 export const DEFAULT_DAYS = 14
 export const MIN_DAYS = 1

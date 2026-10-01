@@ -31,12 +31,6 @@ interface Props {
   onMove: (view: View) => void
 }
 
-const EMPTY_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {},
-  layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#dfe6ea' } }],
-}
-
 type CirclePaint = NonNullable<Extract<StyleSpecification['layers'][number], { type: 'circle' }>['paint']>
 // A spread list cannot satisfy the expression's tuple type, hence the cast through unknown.
 const hazardColour = ['match', ['get', 'hazard_type'], ...Object.entries(HAZARD_COLOURS).flat(), OTHER_COLOUR] as unknown as CirclePaint['circle-color']
@@ -73,16 +67,15 @@ function addLayers(map: MapLibreMap) {
       'circle-radius': ['step', ['get', 'point_count'], 11, 10, 14, 50, 18, 200, 23],
     },
   })
-  if (map.getStyle().glyphs) {
-    map.addLayer({
-      id: 'cluster-count',
-      type: 'symbol',
-      source: 'events',
-      filter: ['has', 'point_count'],
-      layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 11, 'text-font': ['Noto Sans Regular'] },
-      paint: { 'text-color': '#1a1a1a' },
-    })
-  }
+  map.addLayer({
+    id: 'cluster-count',
+    type: 'symbol',
+    source: 'events',
+    filter: ['has', 'point_count'],
+    // Noto Sans Regular is one of the fonts the OpenFreeMap styles serve.
+    layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 11, 'text-font': ['Noto Sans Regular'] },
+    paint: { 'text-color': '#1a1a1a' },
+  })
   map.addLayer({
     id: 'event-points',
     type: 'circle',
@@ -123,10 +116,11 @@ export default function MapView({ points, footprints, selectedId, initialView, f
   useEffect(() => {
     const map = new MapLibreMap({
       container: container.current!,
-      style: BASEMAP_STYLE_URL ?? EMPTY_STYLE,
+      style: BASEMAP_STYLE_URL,
       center: initialView ? [initialView.lon, initialView.lat] : [0, 20],
       zoom: initialView?.zoom ?? 1.5,
-      attributionControl: { compact: true },
+      // The tile credit stays spelled out, never folded into an info button.
+      attributionControl: { compact: false },
       dragRotate: false,
     })
     map.touchZoomRotate.disableRotation()
