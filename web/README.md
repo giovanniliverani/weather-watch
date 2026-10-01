@@ -42,9 +42,11 @@ The API address is `API_BASE_URL` in `src/config.ts` (override with `VITE_API_BA
 | `src/url.ts` | Reading and writing the URL query |
 | `src/api.ts` | The only code that calls the API, one function per endpoint |
 | `src/types.ts` | The shapes the API returns (docs/architecture.md section 2) |
-| `src/config.ts` | Settings in one place: API address, basemap, window presets, severity steps, hazard colours |
-| `src/MapView.tsx` | The MapLibre map: pins, clusters, footprints, geolocation |
-| `src/FiltersForm.tsx`, `src/EventList.tsx`, `src/StatusStrip.tsx` | Filters, the list of shown events, the data freshness line |
+| `src/config.ts` | Settings in one place: API address, basemap style, window presets, severity steps |
+| `src/symbols.ts`, `src/HazardSymbol.tsx` | The hazard symbols and colours, drawn once for the map icons and the legend |
+| `src/MapView.tsx` | The MapLibre map: symbols, clusters, footprints, geolocation |
+| `src/FilterColumn.tsx`, `src/EventList.tsx` | The left column (data age, filters, legend with counts) and the list of shown events |
+| `src/index.css` | The look: dark surfaces, the accent colour, the phone layout |
 | `src/Panel.tsx` | The selected event: Details, News, Posts and Weather tabs |
 | `src/About.tsx` | The About page with every credit, from `/attributions` |
 | `src/useResource.ts` | Loads one API answer, cancels stale requests, caches revisits |
