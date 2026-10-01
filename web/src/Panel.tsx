@@ -139,6 +139,9 @@ function Details({ event }: { event: EventFeature }) {
         <dd>{hazardName(p.hazard_type)}</dd>
         <dt>Severity</dt>
         <dd>{p.severity_label ?? 'not stated'}</dd>
+        {/* The band the map's rings show; it can sit above the source's own label when an EMS activation raised the score. */}
+        <dt>Score band</dt>
+        <dd>{p.severity_band ?? (p.severity_score === null ? 'not scored' : 'below Green')}</dd>
         <dt>Status</dt>
         <dd>{statusName(p.status)}</dd>
         <dt>Started</dt>
