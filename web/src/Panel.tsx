@@ -1,8 +1,9 @@
 // The side panel for the selected event: Details, News, Posts and Weather tabs (WAI-ARIA tabs pattern).
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fetchDocuments, fetchForecast } from './api'
-import { formatDay, formatWhen, hazardName, measure } from './format'
+import { formatDay, formatWhen, hazardName, measure, precisionName, sourceName, statusName } from './format'
 import HazardSymbol from './HazardSymbol'
+import { Chevron, Close } from './icons'
 import type { DocumentItem, EventFeature, Forecast } from './types'
 import { useResource, type Resource } from './useResource'
 
@@ -22,6 +23,7 @@ export default function Panel({ event, onClose }: Props) {
   const p = event.properties
   const [lon, lat] = event.geometry.coordinates
   const [tab, setTab] = useState<Tab>('Details')
+  const [collapsed, setCollapsed] = useState(false)
   // The event whose forecast was asked for by hovering or focusing the Weather tab; other events wait for a click.
   const [weatherWantedFor, setWeatherWantedFor] = useState<string | null>(null)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -47,7 +49,12 @@ export default function Panel({ event, onClose }: Props) {
   }
 
   return (
-    <aside className="panel" aria-labelledby={`${baseId}-title`} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+    <aside
+      className="panel"
+      data-collapsed={collapsed}
+      aria-labelledby={`${baseId}-title`}
+      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+    >
       <header className="panel-head">
         <HazardSymbol hazard={p.hazard_type} ended={p.status === 'ended'} size={28} />
         <div>
@@ -59,41 +66,54 @@ export default function Panel({ event, onClose }: Props) {
             {p.status === 'ended' ? ' · ended' : ''}
           </p>
         </div>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Close event">
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-            <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-          </svg>
-        </button>
-      </header>
-      <div role="tablist" aria-label="Event information" className="tabs">
-        {TABS.map((name, index) => (
+        <div className="panel-actions">
+          {/* Phone only: fold the bottom sheet down to this header so the map gets the screen back. */}
           <button
-            key={name}
-            ref={(el) => {
-              tabRefs.current[index] = el
-            }}
             type="button"
-            role="tab"
-            id={`${baseId}-tab-${name}`}
-            aria-selected={tab === name}
-            aria-controls={`${baseId}-panel-${name}`}
-            tabIndex={tab === name ? 0 : -1}
-            onClick={() => setTab(name)}
-            onKeyDown={(e) => onTabKey(e, index)}
-            onPointerEnter={name === 'Weather' ? () => setWeatherWantedFor(p.event_id) : undefined}
-            onFocus={name === 'Weather' ? () => setWeatherWantedFor(p.event_id) : undefined}
+            className="icon-button sheet-toggle"
+            aria-expanded={!collapsed}
+            aria-controls={`${baseId}-body`}
+            aria-label={collapsed ? 'Show event details' : 'Fold event details'}
+            onClick={() => setCollapsed(!collapsed)}
           >
-            {name}
-            {name === 'News' && p.doc_count ? <span className="count">{p.doc_count}</span> : null}
-            {name === 'Posts' && p.post_count + p.video_count ? <span className="count">{p.post_count + p.video_count}</span> : null}
+            <Chevron />
           </button>
-        ))}
-      </div>
-      <div role="tabpanel" id={`${baseId}-panel-${tab}`} aria-labelledby={`${baseId}-tab-${tab}`} tabIndex={0} className="tab-body">
-        {tab === 'Details' ? <Details event={event} /> : null}
-        {tab === 'News' ? <DocumentList resource={documents} kinds={['article', 'report']} empty="No articles or reports attached to this event yet." /> : null}
-        {tab === 'Posts' ? <DocumentList resource={documents} kinds={['post', 'video']} empty="No posts, photos or videos attached to this event yet." /> : null}
-        {tab === 'Weather' ? <Weather resource={forecast} /> : null}
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close event">
+            <Close />
+          </button>
+        </div>
+      </header>
+      <div id={`${baseId}-body`} className="panel-body">
+        <div role="tablist" aria-label="Event information" className="tabs">
+          {TABS.map((name, index) => (
+            <button
+              key={name}
+              ref={(el) => {
+                tabRefs.current[index] = el
+              }}
+              type="button"
+              role="tab"
+              id={`${baseId}-tab-${name}`}
+              aria-selected={tab === name}
+              aria-controls={`${baseId}-panel-${name}`}
+              tabIndex={tab === name ? 0 : -1}
+              onClick={() => setTab(name)}
+              onKeyDown={(e) => onTabKey(e, index)}
+              onPointerEnter={name === 'Weather' ? () => setWeatherWantedFor(p.event_id) : undefined}
+              onFocus={name === 'Weather' ? () => setWeatherWantedFor(p.event_id) : undefined}
+            >
+              {name}
+              {name === 'News' && p.doc_count ? <span className="count">{p.doc_count}</span> : null}
+              {name === 'Posts' && p.post_count + p.video_count ? <span className="count">{p.post_count + p.video_count}</span> : null}
+            </button>
+          ))}
+        </div>
+        <div role="tabpanel" id={`${baseId}-panel-${tab}`} aria-labelledby={`${baseId}-tab-${tab}`} tabIndex={0} className="tab-body">
+          {tab === 'Details' ? <Details event={event} /> : null}
+          {tab === 'News' ? <DocumentList resource={documents} kinds={['article', 'report']} empty="No articles or reports attached to this event yet." /> : null}
+          {tab === 'Posts' ? <DocumentList resource={documents} kinds={['post', 'video']} empty="No posts, photos or videos attached to this event yet." /> : null}
+          {tab === 'Weather' ? <Weather resource={forecast} /> : null}
+        </div>
       </div>
     </aside>
   )
@@ -111,7 +131,7 @@ function Details({ event }: { event: EventFeature }) {
         <dt>Severity</dt>
         <dd>{p.severity_label ?? 'not stated'}</dd>
         <dt>Status</dt>
-        <dd>{p.status}</dd>
+        <dd>{statusName(p.status)}</dd>
         <dt>Started</dt>
         <dd>{formatWhen(p.started_at)}</dd>
         {p.ended_at ? (
@@ -126,10 +146,10 @@ function Details({ event }: { event: EventFeature }) {
         <dd>{p.country_iso3 ?? 'not stated'}</dd>
         <dt>Position</dt>
         <dd>
-          {lat.toFixed(3)}, {lon.toFixed(3)} ({p.precision})
+          {lat.toFixed(3)}, {lon.toFixed(3)} ({precisionName(p.precision)})
         </dd>
         <dt>Sources</dt>
-        <dd>{p.source_ids.join(', ') || 'none'}</dd>
+        <dd>{p.source_ids.map(sourceName).join(', ') || 'none'}</dd>
         {p.glide_number ? (
           <>
             <dt>GLIDE</dt>

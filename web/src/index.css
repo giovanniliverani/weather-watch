@@ -2,11 +2,12 @@
    One accent (periwinkle) marks what can be pressed and what is selected; hazard colours live in symbols.ts. */
 :root {
   --ground: #0c0c0c; /* the basemap's own background */
-  --surface: #161a1f; /* the column and the panel */
-  --raise: #1f242b; /* chips, hover, cluster discs */
-  --rule: #2c333b;
-  --text: #e6e8eb;
-  --muted: #a3acb6;
+  /* Neutral charcoals one step above the basemap's ground, so the frame matches the map's temperature. */
+  --surface: #171717; /* the column and the panel */
+  --raise: #212121; /* chips, hover, cluster discs */
+  --rule: #2f2f2f;
+  --text: #e8e8e8;
+  --muted: #a8a8a8;
   --accent: #8ab4ff;
   --accent-ink: #0c1424;
   --alarm: #ff7a7a;
@@ -50,9 +51,10 @@ h1 {
 }
 
 h2 {
-  font-size: 1.07rem;
+  font-size: 1.3rem;
   font-weight: 650;
-  line-height: 1.3;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
 }
 
 h3 {
@@ -104,7 +106,7 @@ button {
 /* Layout: column, map, panel. */
 .app {
   display: grid;
-  grid-template-columns: 272px 1fr auto;
+  grid-template-columns: 260px 1fr auto;
   grid-template-areas: 'column map panel';
   height: 100dvh;
 }
@@ -158,7 +160,9 @@ button {
   text-transform: uppercase;
 }
 
-.filters-toggle {
+.filters-toggle,
+.narrow-only,
+.sheet-toggle {
   display: none;
 }
 
@@ -293,8 +297,10 @@ button {
 }
 
 .list-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   align-self: stretch;
-  text-align: left;
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--rule);
   border-radius: var(--radius);
@@ -304,8 +310,17 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.list-toggle[aria-expanded='true'] {
-  border-color: var(--accent);
+.list-toggle:hover {
+  background: color-mix(in srgb, var(--accent) 12%, var(--raise));
+}
+
+.chevron {
+  flex: none;
+  transition: transform 150ms ease-out;
+}
+
+[aria-expanded='true'] > .chevron {
+  transform: rotate(180deg);
 }
 
 .event-list {
@@ -380,7 +395,16 @@ button {
 }
 
 .panel-head .quiet {
+  margin-top: 0.2rem;
+}
+
+.panel-head .symbol {
   margin-top: 0.15rem;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 0.25rem;
 }
 
 .icon-button {
@@ -651,6 +675,10 @@ button {
     display: none;
   }
 
+  .narrow-only {
+    display: inline;
+  }
+
   /* Larger touch targets on a phone. */
   .chip span,
   .legend-row,
@@ -700,6 +728,23 @@ button {
     max-height: 55dvh;
     border-left: 0;
     border-top: 1px solid var(--rule);
+  }
+
+  /* The bottom sheet folds to its header, giving the map back the screen. */
+  .sheet-toggle {
+    display: grid;
+  }
+
+  .panel[data-collapsed='true'] .panel-body {
+    display: none;
+  }
+
+  .panel[data-collapsed='false'] .sheet-toggle .chevron {
+    transform: rotate(0deg);
+  }
+
+  .panel[data-collapsed='true'] .sheet-toggle .chevron {
+    transform: rotate(180deg);
   }
 }
 

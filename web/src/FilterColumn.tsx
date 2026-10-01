@@ -2,8 +2,9 @@
 import { useId, useState } from 'react'
 import { SEVERITY_STEPS, WINDOW_PRESETS } from './config'
 import EventList from './EventList'
-import { formatWhen, hazardName, plural } from './format'
+import { formatShortWhen, formatWhen, hazardName, plural } from './format'
 import HazardSymbol from './HazardSymbol'
+import { Chevron } from './icons'
 import type { EventFeature, Heartbeat } from './types'
 import type { Resource } from './useResource'
 import type { Filters } from './url'
@@ -47,8 +48,8 @@ export default function FilterColumn(props: Props) {
           {meta ? (
             <>
               <p>
-                <span className="wide-only">Data as of </span>
-                {formatWhen(meta.data_as_of)}
+                <span className="wide-only">Data as of {formatWhen(meta.data_as_of)}</span>
+                <span className="narrow-only">as of {formatShortWhen(meta.data_as_of)}</span>
               </p>
               {meta.pipeline_stale ? (
                 <p className="stamp" title={`Collection is behind: ${meta.missed_runs_7d} of ${meta.expected_runs_7d} runs missed in 7 days.`}>
@@ -154,7 +155,8 @@ export default function FilterColumn(props: Props) {
           </p>
         ) : (
           <button type="button" className="list-toggle" aria-expanded={listOpen} aria-controls={listId} onClick={() => setListOpen(!listOpen)}>
-            {plural(points.length, 'event')} · list
+            <span>{plural(points.length, 'event')} · list</span>
+            <Chevron />
           </button>
         )}
         <div id={listId} hidden={!listOpen}>
