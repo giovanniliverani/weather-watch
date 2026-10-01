@@ -7,6 +7,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from pathlib import Path, PurePosixPath
 
 import httpx
 import pytest
@@ -153,6 +154,30 @@ def test_outdated_schema_is_refused(conn, tmp_path):
     assert result.exit_code == 1
     assert "at schema 3" in result.output and "Traceback" not in result.output
     assert _versions(path)[-1][0] == 3  # nothing migrated it
+
+
+def test_readonly_uri_handles_drives_shares_and_odd_names():
+    assert db.readonly_uri(Path("C:/data/città #1 %.sqlite")) == "file:///C:/data/citt%C3%A0%20%231%20%25.sqlite?mode=ro"
+    assert db.readonly_uri(Path("//server/share/eww.sqlite")) == "file:////server/share/eww.sqlite?mode=ro"
+    assert db.readonly_uri(PurePosixPath("/home/me/eww.sqlite")) == "file:///home/me/eww.sqlite?mode=ro"
+
+
+def test_odd_path_opens_read_only(conn, tmp_path):
+    odd = tmp_path / "città #1 %" / "eww.sqlite"
+    odd.parent.mkdir()
+    with closing(db.connect(odd)) as writer:
+        db.init_db(writer)
+    with closing(db.connect_readonly(odd)) as reader:
+        assert db.schema_version(reader) == db.SCHEMA_VERSION
+
+
+def test_a_file_that_is_not_a_database_is_refused(tmp_path):
+    junk = tmp_path / "junk.sqlite"
+    junk.write_bytes(b"not a database" * 100)
+    with pytest.raises(RuntimeError, match="cannot read .* as an eww database"):
+        create_app(junk)
+    result = CliRunner().invoke(cli_app, ["--db", str(junk), "serve"])
+    assert result.exit_code == 1 and "Traceback" not in result.output
 
 
 def test_missing_database_is_refused(tmp_path):

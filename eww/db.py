@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from pathlib import Path
+from pathlib import Path, PurePath
+from urllib.parse import quote
 
 from eww import config
 from eww.clock import now_iso
@@ -35,10 +36,17 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+def readonly_uri(path: PurePath) -> str:
+    """Build the read-only SQLite URI for `path`, with an empty authority so UNC shares work too."""
+    posix = path.as_posix()
+    prefix = "file://" if posix.startswith("/") else "file:///"  # a share (//server/...) or POSIX path, else a drive
+    return prefix + quote(posix, safe="/:") + "?mode=ro"
+
+
 def connect_readonly(path: str | Path | None = None) -> sqlite3.Connection:
     """Open an existing SQLite file read-only (URI mode=ro); it reads alongside a WAL writer and never migrates."""
     db_path = Path(path) if path is not None else config.DB_PATH
-    conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+    conn = sqlite3.connect(readonly_uri(db_path.absolute()), uri=True, timeout=30)  # not resolve(): it turns a mapped drive into a UNC path
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA query_only = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
@@ -50,11 +58,14 @@ def require_current_schema(path: str | Path | None = None) -> None:
     db_path = Path(path) if path is not None else config.DB_PATH
     if not db_path.is_file():
         raise RuntimeError(f"no database at {db_path}: run `uv run eww init-db` (or `uv run eww sync`) first")
-    conn = connect_readonly(db_path)
     try:
-        version = schema_version(conn)
-    finally:
-        conn.close()
+        conn = connect_readonly(db_path)
+        try:
+            version = schema_version(conn)
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        raise RuntimeError(f"cannot read {db_path} as an eww database ({exc}): check the --db path, or run `uv run eww init-db`") from exc
     if version is None or version < SCHEMA_VERSION:
         raise RuntimeError(f"{db_path} is at schema {version or 0}, this code needs {SCHEMA_VERSION}: run `uv run eww init-db` (or `uv run eww sync`) first")
 
