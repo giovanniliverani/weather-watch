@@ -63,6 +63,7 @@ SNAPSHOT_FORMAT = "eww.snapshot/1"  # the envelope written by collectors and rep
 SERVE_HOST = "127.0.0.1"
 SERVE_PORT = 8000
 SERVE_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # the Vite dev server in web/
+SERVE_ALLOWED_HOSTS = ["127.0.0.1", "localhost"]  # Host headers answered; others get 400, which stops DNS rebinding
 
 # --------------------------------------------------------------------------- spine, data branch, heartbeat
 SPINE_SOURCES = ["gdacs", "eonet", "copernicus"]  # `eww collect --all-spine`, what GitHub Actions runs

@@ -18,7 +18,7 @@ DEV_ORIGIN = "http://localhost:5173"
 def client(conn, data_dir, tmp_path, monkeypatch) -> TestClient:
     prepared(conn, data_dir)
     monkeypatch.setattr(api, "now_utc", lambda: parse_iso(NOW))
-    return TestClient(create_app(tmp_path / "test.sqlite"))
+    return TestClient(create_app(tmp_path / "test.sqlite"), base_url="http://127.0.0.1:8000")
 
 
 def without_generated_at(collection: dict) -> dict:
@@ -48,7 +48,10 @@ def test_limit_zero_means_everything_in_the_window(client, conn):
     assert len(client.get("/events.geojson", params={"since": "36500d", "limit": 2}).json()["features"]) == 2
 
 
-@pytest.mark.parametrize("params", [{"since": "not-a-date"}, {"bbox": "1,2,3"}, {"bbox": "a,b,c,d"}])
+@pytest.mark.parametrize(
+    "params",
+    [{"since": "not-a-date"}, {"bbox": "1,2,3"}, {"bbox": "a,b,c,d"}, {"since": "99999999999d"}, {"limit": "99999999999999999999"}],
+)
 def test_events_bad_input_is_400(client, params):
     response = client.get("/events.geojson", params=params)
     assert response.status_code == 400
@@ -60,6 +63,15 @@ def test_event_documents(client, conn):
     response = client.get(f"/events/{event_id}/documents")
     assert response.status_code == 200
     assert response.json() == api.event_documents(event_id, conn=conn)
+
+
+def test_merged_event_id_reads_the_canonical_event(client, conn):
+    merged, canonical = [row[0] for row in conn.execute("SELECT event_id FROM event ORDER BY event_id LIMIT 2")]
+    conn.execute("UPDATE event SET merged_into_event_id = ?, status = 'merged' WHERE event_id = ?", (canonical, merged))
+    conn.commit()
+    response = client.get(f"/events/{merged}/documents")
+    assert response.status_code == 200
+    assert response.json() == api.event_documents(canonical, conn=conn)
 
 
 def test_unknown_event_is_404(client):
@@ -89,5 +101,12 @@ def test_cors_allows_only_the_dev_server(client):
 
 def test_only_get_is_served(client):
     assert client.post("/health").status_code == 405
-    preflight = client.options("/health", headers={"Origin": DEV_ORIGIN, "Access-Control-Request-Method": "POST"})
-    assert preflight.status_code == 400
+    get = client.options("/health", headers={"Origin": DEV_ORIGIN, "Access-Control-Request-Method": "GET"})
+    assert get.status_code == 200 and get.headers["access-control-allow-origin"] == DEV_ORIGIN
+    post = client.options("/health", headers={"Origin": DEV_ORIGIN, "Access-Control-Request-Method": "POST"})
+    assert post.status_code == 400
+
+
+def test_foreign_host_header_is_refused(client):
+    assert client.get("/health", headers={"Host": "localhost:8000"}).status_code == 200
+    assert client.get("/health", headers={"Host": "evil.example.com"}).status_code == 400

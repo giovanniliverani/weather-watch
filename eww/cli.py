@@ -293,7 +293,7 @@ def serve(
     from eww.serve import create_app
 
     _open().close()  # apply the schema and pending migrations once, before the first request
-    uvicorn.run(create_app(_state["db"]), host=host, port=port)
+    uvicorn.run(create_app(_state["db"], host), host=host, port=port)
 
 
 # ----------------------------------------------------------------------------- doctor

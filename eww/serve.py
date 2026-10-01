@@ -13,6 +13,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from eww import api, config, db
 
@@ -30,10 +31,13 @@ def parse_bbox(value: str | None) -> list[float] | None:
         raise ValueError("bbox must be four comma-separated numbers") from exc
 
 
-def create_app(db_path: Path | None = None) -> FastAPI:
-    """Build the API over the SQLite file at `db_path` (default: config.DB_PATH)."""
+def create_app(db_path: Path | None = None, host: str = config.SERVE_HOST) -> FastAPI:
+    """Build the API over the SQLite file at `db_path` (default: config.DB_PATH), answering `host` and localhost."""
     app = FastAPI(title="Extreme Weather Watch API", version=config.VERSION)
     app.add_middleware(CORSMiddleware, allow_origins=config.SERVE_CORS_ORIGINS, allow_methods=["GET"])
+    # CORS alone does not stop a page whose DNS name is rebound to 127.0.0.1; checking Host does.
+    hosts = [*config.SERVE_ALLOWED_HOSTS, *([host] if host not in ("0.0.0.0", "::", "") else [])]
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
 
     def connect() -> closing[sqlite3.Connection]:
         # One connection per request: FastAPI runs these handlers on worker threads.
@@ -54,7 +58,7 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         try:
             with connect() as conn:
                 return api.events_geojson(since, until, hazard, min_severity, status, parse_bbox(bbox), include_footprints, limit, conn=conn)
-        except ValueError as exc:
+        except (ValueError, OverflowError) as exc:  # OverflowError: a span or limit too large for timedelta or SQLite
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/events/{event_id}/documents")
