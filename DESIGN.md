@@ -169,7 +169,7 @@ A dark, quiet world map with every event drawn as a weather-chart symbol in its 
 
 Dark is the default; a light theme swaps the same roles onto white surfaces over a warm grey map. The basemap can be chosen separately, and the map's symbols, clusters and selection ring follow the basemap's own ground (dark or light), not the page theme. Density is that of a tool, not a page: small type, tight rows, figures in fixed-width digits.
 
-The frontend draws and never decides. Severity labels (hence the rings), staleness (the STALE stamp), country names and the hazard list all come from the API; the design only gives them a shape.
+The frontend draws and never decides. Severity bands (hence the rings), staleness (the STALE stamp), country names and the hazard list all come from the API; the design only gives them a shape.
 
 **Key Characteristics:**
 - Solid surfaces only; no shadows, glow, gradients or see-through panels.
@@ -188,7 +188,7 @@ Neutral charcoal (or white) surfaces that step one shade from the map's ground, 
 ### Neutral
 - **Basemap Black / Warm Map Grey** (ground, light-ground): the page and the map's own background.
 - **Charcoal Desk / White Sheet** (surface, light-surface): the filter column, the event panel, the map controls and the tile credit.
-- **Raised Charcoal / Soft Grey** (raise, light-raise): chips and rows on hover, the select box, the list toggle, cluster discs on a dark map.
+- **Raised Charcoal / Soft Grey** (raise, light-raise): chips and rows on hover, the select box, the list toggle, the centre of cluster donuts on a dark map.
 - **Hairline** (rule, light-rule): 1 px borders between column, map and panel, chip and select outlines, table rows, tab baseline.
 - **Chart Ink** (text, light-text): body text; also the ink of severity rings, cluster outlines, counts, footprints and the selection ring on that ground.
 - **Pencil Grey** (muted, light-muted): hints, counts, metadata, table headers, inactive tabs and icon buttons.
@@ -243,7 +243,7 @@ Flat. Depth comes from tone (ground, then surface, then raise) and 1 px hairline
 
 ## Shapes
 
-Gently rounded rectangles (6 px) for everything that can be pressed or hovered: chips, select, list toggle, rows, icon buttons, media. Small status marks (the STALE stamp, the EMS badge) and the focus ring use a tighter 3 px corner. The only circles are on the map: hazard discs, severity rings, cluster discs and the selection ring. Interface icons (chevron, sun, moon, close) are inline SVG line drawings at 1.5 to 1.75 stroke, taking the text colour of their button.
+Gently rounded rectangles (6 px) for everything that can be pressed or hovered: chips, select, list toggle, rows, icon buttons, media. Small status marks (the STALE stamp, the EMS badge) and the focus ring use a tighter 3 px corner. The only circles are on the map: hazard discs, severity rings, cluster donuts and the selection ring. Interface icons (chevron, sun, moon, close) are inline SVG line drawings at 1.5 to 1.75 stroke, taking the text colour of their button.
 
 ## Components
 
@@ -251,11 +251,11 @@ Gently rounded rectangles (6 px) for everything that can be pressed or hovered: 
 The system's core. A 24-unit disc (radius 10.5) in the hazard colour with a dark chart glyph drawn at 1.9 stroke: waves for flood, an eye with two spiral arms for tropical cyclone, a lightning bolt for severe storm, a flame for wildfire, a sun for heatwave, a six-armed star for coldwave, cracked ground for drought, a slope with falling blocks for landslide, a cone with ash for volcano, a seismograph trace for earthquake, a breaking wave for tsunami, an exclamation mark for other. The same drawing serves the map (a canvas image per hazard, state, severity and ground) and the page (inline SVG).
 - **Active:** filled disc, 1 px Symbol Ink outline, Symbol Ink glyph.
 - **Ended:** hollow disc, 2 px outline and glyph in the hazard colour, centre in Hollow Fill.
-- **Severity:** rings outside the disc in that ground's text colour, 1.4 stroke: one ring (radius 13.4) for Orange, two (13.4 and 15.4) for Red, none otherwise. The mark follows the API's severity label exactly.
+- **Severity:** rings outside the disc in that ground's text colour, 1.4 stroke: one ring (radius 13.4) for the Orange band, two (13.4 and 15.4) for the Red band, none otherwise. The mark follows the API's severity_band exactly; the panel still shows the source's own severity label.
 - **On the map:** the whole 32-unit box at about 29 px; active events above ended ones, more severe above less severe.
 
 ### Map chrome
-- **Clusters:** a disc in Raised Charcoal (dark ground) or white (light ground), a 1.25 px outline in that ground's text colour at 70%, the count in 12 px Noto Sans. Disc radius steps with the count (12, 15, 19, 24).
+- **Clusters:** a donut of the hazard mix around the count: one segment per hazard in that ground's hazard colour, sized by its share, 1.5 px gaps in the centre disc's colour; the centre disc in Raised Charcoal (dark ground) or white (light ground) with a 1 px outline in that ground's text colour at 55%, the count in 12 px semibold tabular figures in that text colour. Outer radius steps with the count (15, 18, 22, 27), ring 4.5 px under 10 events and 5.5 px above. Each cluster is a button named with its count and largest hazards ("24 events: 18 wildfire, 4 flood, 2 other"); focus shows that ground's accent. Events cluster within 28 px up to zoom 4 and stand alone beyond it. Segments keep at least 5.3:1 (dark) and 3.5:1 (light) against the centre disc.
 - **Selection:** a 2.5 px ring in that ground's text colour at radius 18, outside the widest severity ring.
 - **Footprints:** that ground's text colour at 8% fill with a dashed 1 px outline at 55%.
 - **Controls and credit:** on Charcoal Desk with a hairline border, no shadow; the tile credit is always spelled out.

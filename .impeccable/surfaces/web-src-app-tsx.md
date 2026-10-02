@@ -22,7 +22,7 @@ The owner, on a laptop, sees what extreme weather happened worldwide in the last
 - Data age from `meta` in the filter column, with a STALE stamp only from `meta.pipeline_stale`.
 - Event panel on the right with tabs Details, News (article, report), Posts (post, video; photos inline from their URL, direct video files play, otherwise a thumbnail that links out). Weather: /forecast current conditions and 5 days, with the Open-Meteo credit.
 - About page from /attributions.
-- Events as weather-chart symbols in hazard colours (hollow when ended), clustered as circles with counts, selected event ringed; footprints optional; geolocation only on press.
+- Events as weather-chart symbols in hazard colours (hollow when ended), clustered only up to zoom 4 (28 px radius) as donuts of the hazard mix around the count, each a named button, explained in one legend line; selected event ringed; footprints optional; geolocation only on press.
 - Accessible events list (title, hazard, severity): selecting a row opens the panel and moves the map there.
 - URL holds filters, selected event, centre and zoom; a reload restores them.
 - At 375 px the panel is a bottom sheet and the filters fold into a top bar.

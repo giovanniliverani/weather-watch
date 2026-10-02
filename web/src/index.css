@@ -378,6 +378,10 @@ button {
   font-size: 0.87rem;
 }
 
+.key-note {
+  margin: 0.3rem 0 0;
+}
+
 .key {
   display: flex;
   flex-wrap: wrap;
@@ -737,6 +741,36 @@ button {
 
 .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib a:hover {
   color: var(--text);
+}
+
+/* A cluster: the hazard-mix donut (clusters.ts) with the count on top; colours come per basemap ground, inline. */
+.cluster {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.cluster > * {
+  grid-area: 1 / 1;
+}
+
+.cluster svg {
+  width: 100%;
+  height: 100%;
+}
+
+.cluster:focus-visible {
+  outline: 2px solid var(--cluster-accent);
+  outline-offset: 2px;
 }
 
 /* Phone: the column folds into a top bar with a Filters drawer; the panel becomes a bottom sheet under the map. */

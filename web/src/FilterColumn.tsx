@@ -170,6 +170,7 @@ export default function FilterColumn(props: Props) {
               </button>
             ) : null}
           </div>
+          <p className="hint key-note">Numbered rings are groups of events, coloured by their hazard mix; zoom in to split them.</p>
         </fieldset>
 
         <fieldset className="group">

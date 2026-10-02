@@ -3,6 +3,7 @@ import {
   GeolocateControl,
   LngLatBounds,
   Map as MapLibreMap,
+  Marker,
   NavigationControl,
   setWorkerUrl,
   type GeoJSONSource,
@@ -13,6 +14,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // MapLibre looks for its worker beside its own file, which bundling moves; Vite bundles the worker and gives its address.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { useEffect, useRef, useState } from 'react'
+import { CLUSTER_PROPERTIES, clusterButton, hazardMix } from './clusters'
 import type { Basemap } from './config'
 import { BOX, drawSymbol, iconId, MARK_INK, type Ground, type SeverityMark } from './symbols'
 import type { EventFeature, FootprintFeature } from './types'
@@ -40,8 +42,9 @@ setWorkerUrl(workerUrl)
 
 /** A symbol's whole box on the map, severity rings included; the disc inside is 22 px. */
 const SYMBOL_PX = (22 * BOX) / 24
-/** Fonts for the cluster counts; OpenFreeMap serves Noto Sans Regular, also to raster-only styles. */
-const GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf'
+/** Events closer than this many pixels join a cluster, up to CLUSTER_MAX_ZOOM; past it every event shows on its own. */
+const CLUSTER_RADIUS = 28
+const CLUSTER_MAX_ZOOM = 4
 /** Cluster discs, counts, the selection ring and footprints, per basemap ground (index.css --raise and --surface; keep in step). */
 const CHROME: Record<Ground, { ink: string; disc: string; accent: string }> = {
   dark: { ink: MARK_INK.dark, disc: '#212121', accent: '#8ab4ff' },
@@ -53,7 +56,6 @@ function styleFor(basemap: Basemap): string | StyleSpecification {
   if (basemap.kind === 'style') return basemap.url
   return {
     version: 8,
-    glyphs: GLYPHS,
     sources: {
       basemap: { type: 'raster', tiles: basemap.tiles, tileSize: basemap.tileSize, maxzoom: basemap.maxzoom, attribution: basemap.attribution },
     },
@@ -65,7 +67,6 @@ function styleFor(basemap: Basemap): string | StyleSpecification {
 function fallbackStyle(ground: Ground): StyleSpecification {
   return {
     version: 8,
-    glyphs: GLYPHS,
     sources: {},
     layers: [{ id: 'background', type: 'background', paint: { 'background-color': ground === 'dark' ? '#0c0c0c' : '#f2f3f0' } }],
   }
@@ -75,7 +76,7 @@ const collection = <F,>(features: F[]) => ({ type: 'FeatureCollection' as const,
 
 /** Add the event layers on top of whatever basemap style is loaded; runs again after every style switch. */
 function addLayers(map: MapLibreMap, ground: Ground) {
-  const { ink, disc, accent } = CHROME[ground]
+  const { ink, accent } = CHROME[ground]
   map.addSource('footprints', { type: 'geojson', data: collection([]) })
   map.addLayer({
     id: 'footprint-fill',
@@ -91,27 +92,14 @@ function addLayers(map: MapLibreMap, ground: Ground) {
     paint: { 'line-color': ink, 'line-opacity': 0.55, 'line-width': 1, 'line-dasharray': [3, 2] },
   })
 
-  map.addSource('events', { type: 'geojson', data: collection([]), cluster: true, clusterMaxZoom: 6, clusterRadius: 36 })
-  map.addLayer({
-    id: 'clusters',
-    type: 'circle',
-    source: 'events',
-    filter: ['has', 'point_count'],
-    paint: {
-      'circle-color': disc,
-      'circle-stroke-color': ink,
-      'circle-stroke-opacity': 0.7,
-      'circle-stroke-width': 1.25,
-      'circle-radius': ['step', ['get', 'point_count'], 12, 10, 15, 50, 19, 200, 24],
-    },
-  })
-  map.addLayer({
-    id: 'cluster-count',
-    type: 'symbol',
-    source: 'events',
-    filter: ['has', 'point_count'],
-    layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-allow-overlap': true },
-    paint: { 'text-color': ink },
+  // Clusters are drawn as HTML buttons (syncClusters below), not as a layer, so each has a name and takes the keyboard.
+  map.addSource('events', {
+    type: 'geojson',
+    data: collection([]),
+    cluster: true,
+    clusterMaxZoom: CLUSTER_MAX_ZOOM,
+    clusterRadius: CLUSTER_RADIUS,
+    clusterProperties: CLUSTER_PROPERTIES,
   })
   map.addLayer({
     id: 'event-selected',
@@ -164,6 +152,8 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
   const [failedBasemap, setFailedBasemap] = useState<string | null>(null)
   const latest = useRef({ basemap, points, footprints, selectedId, onSelect, onMove })
   latest.current = { basemap, points, footprints, selectedId, onSelect, onMove }
+  // The cluster markers on the map now, by cluster id; emptied whenever the data or the ground changes.
+  const clusterMarkers = useRef(new Map<number, Marker>())
 
   // Create the map once; the basemap, data, selection and moves flow in through the effects below.
   useEffect(() => {
@@ -206,6 +196,7 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     // Every style load (the first, and each basemap switch) wipes added layers, so they are put back here.
     map.on('style.load', () => {
       styleLoaded.current = true
+      clearClusters()
       const { basemap: b, points: p, footprints: f, selectedId: s } = latest.current
       addLayers(map, b.ground)
       ;(map.getSource('events') as GeoJSONSource).setData(collection(p))
@@ -221,20 +212,12 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
       const id = e.features?.[0]?.properties?.event_id
       if (typeof id === 'string') latest.current.onSelect(id)
     })
-    map.on('click', 'clusters', async (e: MapLayerMouseEvent) => {
-      const feature = e.features?.[0]
-      if (!feature || feature.geometry.type !== 'Point') return
-      try {
-        const zoom = await (map.getSource('events') as GeoJSONSource).getClusterExpansionZoom(feature.properties.cluster_id)
-        map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom })
-      } catch {
-        // The clusters were rebuilt (new data) between the click and the answer; the next click works.
-      }
+    map.on('mouseenter', 'event-points', () => (map.getCanvas().style.cursor = 'pointer'))
+    map.on('mouseleave', 'event-points', () => (map.getCanvas().style.cursor = ''))
+    // MapLibre's HTML-cluster pattern: after each frame, put a marker on every cluster in view and drop the rest.
+    map.on('render', () => {
+      if (map.getSource('events') && map.isSourceLoaded('events')) syncClusters(map)
     })
-    for (const layer of ['event-points', 'clusters']) {
-      map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'))
-      map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''))
-    }
     map.on('moveend', () => {
       const center = map.getCenter()
       latest.current.onMove({ zoom: map.getZoom(), lat: center.lat, lon: center.lng })
@@ -259,6 +242,7 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     const map = mapRef.current
     const source = map?.getSource('events') as GeoJSONSource | undefined
     if (!map || !source) return
+    clearClusters()
     source.setData(collection(points))
     if (!fitted.current && points.length) {
       fitToPoints(map, points)
@@ -280,6 +264,44 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     if (!map || !flyTo) return
     map.easeTo({ center: [flyTo.lon, flyTo.lat], zoom: Math.max(map.getZoom(), 7) })
   }, [flyTo])
+
+  function clearClusters() {
+    for (const marker of clusterMarkers.current.values()) marker.remove()
+    clusterMarkers.current.clear()
+  }
+
+  function syncClusters(map: MapLibreMap) {
+    const ground = latest.current.basemap.ground
+    const bounds = map.getBounds()
+    const inView = new Set<number>()
+    for (const feature of map.querySourceFeatures('events', { filter: ['has', 'point_count'] })) {
+      const id = feature.properties.cluster_id as number
+      if (inView.has(id) || feature.geometry.type !== 'Point') continue
+      const at = feature.geometry.coordinates as [number, number]
+      if (!bounds.contains(at)) continue
+      inView.add(id)
+      if (clusterMarkers.current.has(id)) continue
+      const total = feature.properties.point_count as number
+      const button = clusterButton(total, String(feature.properties.point_count_abbreviated), hazardMix(feature.properties), ground, CHROME[ground])
+      button.addEventListener('click', (event) => {
+        event.stopPropagation()
+        // The button goes away as the map zooms in, so keyboard focus moves to the map instead of the page top.
+        if (document.activeElement === button) map.getCanvas().focus()
+        ;(map.getSource('events') as GeoJSONSource)
+          .getClusterExpansionZoom(id)
+          .then((zoom) => map.easeTo({ center: at, zoom }))
+          .catch(() => {
+            // The clusters were rebuilt (new data) between the click and the answer; the next click works.
+          })
+      })
+      clusterMarkers.current.set(id, new Marker({ element: button }).setLngLat(at).addTo(map))
+    }
+    for (const [id, marker] of clusterMarkers.current) {
+      if (inView.has(id)) continue
+      marker.remove()
+      clusterMarkers.current.delete(id)
+    }
+  }
 
   /** Load the chosen basemap again after it failed (the tile host may be back). */
   function loadBasemap(next: Basemap) {
