@@ -265,9 +265,23 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
     map.easeTo({ center: [flyTo.lon, flyTo.lat], zoom: Math.max(map.getZoom(), 7) })
   }, [flyTo])
 
+  /** Take a cluster off the map; a focused one hands focus to the map, so the next Tab does not restart at the page top. */
+  function removeCluster(marker: Marker) {
+    if (marker.getElement().contains(document.activeElement)) mapRef.current?.getCanvas().focus()
+    marker.remove()
+  }
+
   function clearClusters() {
-    for (const marker of clusterMarkers.current.values()) marker.remove()
+    for (const marker of clusterMarkers.current.values()) removeCluster(marker)
     clusterMarkers.current.clear()
+  }
+
+  /** Reading order on screen: rows of 40 px top to bottom, left to right in a row. Panning and zooming keep it. */
+  function readingKey(map: MapLibreMap, at: [number, number]): [number, number] {
+    // A marker draws on the world copy nearest the centre, so measure it there too.
+    const lng = at[0] + 360 * Math.round((map.getCenter().lng - at[0]) / 360)
+    const { x, y } = map.project([lng, at[1]])
+    return [Math.round(y / 40), x]
   }
 
   function syncClusters(map: MapLibreMap) {
@@ -278,15 +292,14 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
       const id = feature.properties.cluster_id as number
       if (inView.has(id) || feature.geometry.type !== 'Point') continue
       const at = feature.geometry.coordinates as [number, number]
-      if (!bounds.contains(at)) continue
+      // Across the 180th meridian the view's bounds run past 180 while cluster longitudes do not, so try each world copy.
+      if (![0, 360, -360].some((shift) => bounds.contains([at[0] + shift, at[1]]))) continue
       inView.add(id)
       if (clusterMarkers.current.has(id)) continue
       const total = feature.properties.point_count as number
       const button = clusterButton(total, String(feature.properties.point_count_abbreviated), hazardMix(feature.properties), ground, CHROME[ground])
       button.addEventListener('click', (event) => {
         event.stopPropagation()
-        // The button goes away as the map zooms in, so keyboard focus moves to the map instead of the page top.
-        if (document.activeElement === button) map.getCanvas().focus()
         ;(map.getSource('events') as GeoJSONSource)
           .getClusterExpansionZoom(id)
           .then((zoom) => map.easeTo({ center: at, zoom }))
@@ -294,11 +307,23 @@ export default function MapView({ basemap, points, footprints, selectedId, initi
             // The clusters were rebuilt (new data) between the click and the answer; the next click works.
           })
       })
-      clusterMarkers.current.set(id, new Marker({ element: button }).setLngLat(at).addTo(map))
+      const marker = new Marker({ element: button }).setLngLat(at).addTo(map)
+      // Keyboard order follows the screen: put the new button before the first cluster that reads after it.
+      // The buttons already on the map are in that order, so the earliest one on the page among those after it is the spot.
+      const [row, x] = readingKey(map, at)
+      const next = [...clusterMarkers.current.values()]
+        .filter((other) => {
+          const [otherRow, otherX] = readingKey(map, other.getLngLat().toArray() as [number, number])
+          return otherRow > row || (otherRow === row && otherX > x)
+        })
+        .map((other) => other.getElement())
+        .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))[0]
+      next?.before(button)
+      clusterMarkers.current.set(id, marker)
     }
     for (const [id, marker] of clusterMarkers.current) {
       if (inView.has(id)) continue
-      marker.remove()
+      removeCluster(marker)
       clusterMarkers.current.delete(id)
     }
   }
