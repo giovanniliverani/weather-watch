@@ -9,6 +9,7 @@ The map of Extreme Weather Watch as a web page. It reads only the local API (`uv
 - **TypeScript** is JavaScript with type hints that are checked before the code runs, like mypy but strict: `npm run build` refuses to finish while any type error remains.
 - **Vite** is the dev server and the bundler. In development it serves the source with instant reloads; `npm run build` turns it into a few small files in `dist/`.
 - **React** builds the page from components: functions that take data and return what to show. When the data changes, React redraws only what changed.
+- **Vitest** runs the tests, like pytest for Python: files named `*.test.ts` beside the code they check. It is a development tool only and never reaches the browser.
 - **MapLibre GL JS** draws the map in the browser with the graphics card. It is the biggest piece (about 280 KB compressed), so it loads after the page shell.
 
 ## Run it
@@ -29,6 +30,7 @@ The API answers browser calls only from http://localhost:5710 and http://127.0.0
 | `npm run dev` | Development server with live reload |
 | `npm run typecheck` | Type-check only |
 | `npm run build` | Type-check, then write the production files to `dist/` |
+| `npm test` | Run the tests once (Vitest); `npx vitest` keeps watching and re-runs them on every save |
 | `npm run preview` | Serve `dist/` on port 5710 to try the production build |
 
 The API address is `API_BASE_URL` in `src/config.ts` (override with `VITE_API_BASE_URL` in `web/.env.local`). To offer another map style, add one entry to `BASEMAPS` there: a vector style URL, or raster tiles (for example satellite) with their credit line.
@@ -58,4 +60,5 @@ What leaves the laptop: map tiles and fonts from OpenFreeMap, satellite tiles fr
 | `src/index.css` | The look: dark surfaces, the accent colour, the phone layout |
 | `src/Panel.tsx` | The selected event: Details, News, Posts and Weather tabs |
 | `src/About.tsx` | The About page with every credit, from `/attributions` |
+| `src/*.test.ts` | The tests (`npm test`): cluster names, the URL state, the events query the API expects, display text |
 | `src/useResource.ts` | Loads one API answer, cancels stale requests, caches revisits where asked (not forecasts) |
