@@ -16,14 +16,42 @@ equals the SQL count of events observed in the window.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from datetime import datetime
 from typing import Iterable
 
-from eww import collectors, config, db, embed, events, heartbeat, weather
-from eww.clock import now_utc, parse_when, to_iso
+from eww import collectors, config, countries, db, embed, events, heartbeat, weather
+from eww.clock import now_utc, parse_iso, parse_when, to_iso
 
 HAZARD_TYPES: list[str] = list(config.HAZARD_TYPES)
+
+
+def severity_steps() -> list[dict]:
+    """The minimum-severity filter's steps: 'Any', then one per GDACS band, built from config (GET /severity-steps).
+
+    The filter works on severity_score, so each hint says which events a step keeps: the GDACS bands at or above
+    it, a Copernicus EMS activation when its floor reaches the step, and other feeds' scores as high.
+    """
+    bands = sorted(config.GDACS_SEVERITY.items(), key=lambda item: item[1])
+    steps = [{"value": 0.0, "label": "Any", "hint": "every event, whatever its severity"}]
+    for label, value in bands:
+        kept = [name for name, score in bands if score >= value]
+        if config.EMS_SEVERITY_FLOOR >= value:
+            kept.append("an EMS activation")
+        reach = f"score {value:g}" if value >= 1.0 else f"score {value:g} and up"  # 1.0 is the top of the scale
+        steps.append({"value": value, "label": label, "hint": f"{reach}: {', '.join(kept)}, or another feed scored as high"})
+    return steps
+
+
+def severity_band(score: float | None) -> str | None:
+    """Name the highest GDACS band the score reaches ('Green', 'Orange', 'Red'), with the severity steps' thresholds."""
+    if score is None:
+        return None
+    reached = [label for label, value in config.GDACS_SEVERITY.items() if score >= value]
+    return max(reached, key=config.GDACS_SEVERITY.__getitem__, default=None)
+
+
 EMS_SOURCE_ID = "copernicus"  # ems_activation is True when a Copernicus EMS activation sits on the event
 DEFAULT_LIMIT = 2000
 
@@ -37,7 +65,9 @@ EVENT_PROPERTIES = (
     "last_observed_at",
     "severity_score",
     "severity_label",
+    "severity_band",
     "country_iso3",
+    "country_name",
     "precision",
     "glide_number",
     "source_ids",
@@ -52,8 +82,8 @@ EVENT_PROPERTIES = (
 )
 FOOTPRINT_PROPERTIES = ("event_id", "role", "observed_at", "source_id")
 FOOTPRINT_ROLES = ("footprint", "track", "impact_area")
-META_KEYS = ("data_as_of", "last_collector_run_at", "missed_runs_7d", "expected_runs_7d", "generated_at", "filters_applied")
-# Thresholds for the viewer's status strip (the viewer imports only this module).
+META_KEYS = ("data_as_of", "last_collector_run_at", "missed_runs_7d", "expected_runs_7d", "pipeline_stale", "generated_at", "filters_applied")
+# Thresholds for the status strip: pipeline_stale is true past either (app.py still reads them directly).
 STATUS_RED_MISSED_RUNS = config.STATUS_RED_MISSED_RUNS
 STATUS_RED_STALE_HOURS = config.STATUS_RED_STALE_HOURS
 
@@ -116,8 +146,12 @@ def events_geojson(
     since_iso, until_iso = to_iso(since_dt), (to_iso(until_dt) if until_dt else None)
     hazards, statuses = _as_list(hazard), _as_list(status)
     bbox_list = [float(v) for v in bbox] if bbox is not None else None
-    if bbox_list is not None and len(bbox_list) != 4:
-        raise ValueError("bbox must be [min_lon, min_lat, max_lon, max_lat]")
+    if bbox_list is not None and (len(bbox_list) != 4 or not all(math.isfinite(v) for v in bbox_list)):
+        raise ValueError("bbox must be [min_lon, min_lat, max_lon, max_lat], four finite numbers")
+    if min_severity is not None and not 0.0 <= float(min_severity) <= 1.0:  # also refuses NaN
+        raise ValueError(f"min_severity must be between 0 and 1, got {min_severity}")
+    if limit is not None and int(limit) < 0:
+        raise ValueError(f"limit must be 0 (everything) or more, got {limit}")
 
     own = conn is None
     conn = conn or db.connect()
@@ -230,7 +264,9 @@ def _feature(event: sqlite3.Row, records: list[sqlite3.Row], documents: dict) ->
         "last_observed_at": event["last_observed_at"],
         "severity_score": event["severity_score"],
         "severity_label": event["severity_label"],
+        "severity_band": severity_band(event["severity_score"]),  # so the map's rings agree with the severity filter
         "country_iso3": event["country_iso3"],
+        "country_name": countries.name_for(event["country_iso3"]),  # GeoNames English name; null without a country
         "precision": event["precision"] or "unresolved",
         "glide_number": event["glide_number"],
         "source_ids": source_ids,
@@ -277,15 +313,33 @@ def _footprints(conn, members: dict[str, list[str]]) -> list[dict]:
     return features
 
 
-def _meta(conn, now, since_iso, until_iso, hazards, min_severity, statuses, bbox_list, include_footprints, limit) -> dict:
-    beat = heartbeat.summary(conn, now)
-    data_as_of = conn.execute("SELECT MAX(last_seen_at) FROM source_record").fetchone()[0]
+def heartbeat_meta(*, conn: sqlite3.Connection | None = None, now: datetime | None = None) -> dict:
+    """The contract's `meta` without `filters_applied`: data freshness and collector heartbeat (GET /health)."""
+    now = now or now_utc()
+    own = conn is None
+    conn = conn or db.connect()
+    try:
+        beat = heartbeat.summary(conn, now)
+        data_as_of = conn.execute("SELECT MAX(last_seen_at) FROM source_record").fetchone()[0]
+    finally:
+        if own:
+            conn.close()
+    last_run = beat["last_collector_run_at"]
+    hours_since_run = None if last_run is None else (now - parse_iso(last_run)).total_seconds() / 3600
+    stale = hours_since_run is None or hours_since_run > STATUS_RED_STALE_HOURS or beat["missed_runs_7d"] > STATUS_RED_MISSED_RUNS
     return {
         "data_as_of": data_as_of,
-        "last_collector_run_at": beat["last_collector_run_at"],
+        "last_collector_run_at": last_run,
         "missed_runs_7d": beat["missed_runs_7d"],
         "expected_runs_7d": beat["expected_runs_7d"],
+        "pipeline_stale": stale,
         "generated_at": to_iso(now),
+    }
+
+
+def _meta(conn, now, since_iso, until_iso, hazards, min_severity, statuses, bbox_list, include_footprints, limit) -> dict:
+    return {
+        **heartbeat_meta(conn=conn, now=now),
         "filters_applied": {
             "since": since_iso,
             "until": until_iso,
@@ -311,6 +365,17 @@ def count_in_window(conn: sqlite3.Connection, since: str | datetime, until: str 
 
 
 # ----------------------------------------------------------------------------- M3: the News tab and the About section
+def event_exists(event_id: str, *, conn: sqlite3.Connection | None = None) -> bool:
+    """Whether `event_id` names an event, live or merged (event_documents() follows a merged id)."""
+    own = conn is None
+    conn = conn or db.connect()
+    try:
+        return conn.execute("SELECT 1 FROM event WHERE event_id = ?", (event_id,)).fetchone() is not None
+    finally:
+        if own:
+            conn.close()
+
+
 DOCUMENT_FIELDS = ("document_id", "source_id", "kind", "title", "text_excerpt", "url", "author", "publisher", "published_at", "media_url", "media_kind", "language", "score", "method", "decided_by")
 
 
@@ -376,6 +441,9 @@ def attributions(*, conn: sqlite3.Connection | None = None) -> list[dict]:
     out.append({"id": "geonames", "name": "GeoNames gazetteer and web service", "attribution": config.GEOCODER_ATTRIBUTIONS["gazetteer"], "terms_url": "https://creativecommons.org/licenses/by/4.0/"})
     out.append({"id": "nominatim", "name": "Nominatim (OpenStreetMap)", "attribution": config.GEOCODER_ATTRIBUTIONS["nominatim"], "terms_url": "https://operations.osmfoundation.org/policies/nominatim/"})
     out.append({"id": "osm-tiles", "name": "Map tiles", "attribution": "© OpenStreetMap contributors, ODbL", "terms_url": "https://www.openstreetmap.org/copyright"})
+    out.append({"id": "openfreemap", "name": "Map tiles (React map)", "attribution": "OpenFreeMap © OpenMapTiles Data from OpenStreetMap", "terms_url": "https://openfreemap.org/"})
+    out.append({"id": "nasa-gibs", "name": "Daily satellite imagery (React map, 'Today from space')", "attribution": "We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS).", "terms_url": "https://nasa-gibs.github.io/gibs-api-docs/"})
+    out.append({"id": "esri-imagery", "name": "Satellite imagery (React map, 'Satellite', when an Esri key is set)", "attribution": "Powered by Esri. Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community", "terms_url": "https://www.esri.com/en-us/legal/terms/full-master-agreement"})
     out.append({"id": "open-meteo", "name": "Open-Meteo", "attribution": config.OPEN_METEO_ATTRIBUTION, "terms_url": "https://open-meteo.com/en/licence"})
     return out
 

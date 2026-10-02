@@ -1,6 +1,6 @@
 # Extreme Weather Watch: architecture and sequencing
 
-*Written 2026-09-16, last updated 2026-09-26 after M5 was measured, against the README and constraints in `docs/planning-prompt.md`. Facts about third-party services were checked against their official pages on those dates; anything marked **verify** is either unconfirmed or likely to change.*
+*Written 2026-09-16, last updated 2026-10-02 when M7 was done, against the README and constraints in `docs/planning-prompt.md`. Facts about third-party services were checked against their official pages on those dates; anything marked **verify** is either unconfirmed or likely to change.*
 
 ## 0. Summary
 
@@ -12,7 +12,7 @@
 
 | Decision | Choice | Why | What would change my mind |
 |---|---|---|---|
-| Language and runtime | Python 3.12 with uv; one package `eww` with a CLI (`uv run eww <command>`) for everything that touches data. **From M7 the frontend is React** (TypeScript, Vite, MapLibre) in `web/` and nowhere else, reading only `GET /events.geojson`; decided by you on 2026-09-22 | Python is the language you have, and every pipeline component has a mature library. The map deserves a real frontend, and §2's GeoJSON boundary was drawn so that adding one touches nothing behind it; the `impeccable` and `react-best-practices` skills in the repository carry the design and performance judgement you do not yet have in JavaScript. | Nothing in v1 for the pipeline. For the frontend: if the first JavaScript project costs more than the map gains, M7 stops at `eww serve` and the Streamlit viewer stays. |
+| Language and runtime | Python 3.12 with uv; one package `eww` with a CLI (`uv run eww <command>`) for everything that touches data. **From M7 the frontend is React** (TypeScript, Vite, MapLibre) in `web/` and nowhere else, reading only the read-only HTTP endpoints of `eww serve`; decided by you on 2026-09-22 | Python is the language you have, and every pipeline component has a mature library. The map deserves a real frontend, and §2's GeoJSON boundary was drawn so that adding one touches nothing behind it; the `impeccable` and `react-best-practices` skills in the repository carry the design and performance judgement you do not yet have in JavaScript. | Nothing in v1 for the pipeline. For the frontend: if the first JavaScript project costs more than the map gains, M7 stops at `eww serve` and the Streamlit viewer stays. |
 | Database | SQLite in WAL mode with STRICT tables, one file; geometry as GeoJSON text plus bbox columns; embeddings as float32 BLOBs compared in numpy | Zero install, zero ops; a single writer matches a single user; the file is rebuildable from the data branch. At tens of thousands of rows it needs neither a spatial nor a vector index. | A second writer (contributions), a hosted API with concurrent writes, or polygon predicates → Postgres + PostGIS + pgvector on Neon (0.5 GB and 100 compute-hours free, verified) using the portable DDL in §3. |
 | Local development setup | uv project; `.env` holding the three optional secrets (Bluesky app password, YouTube key, Anthropic key); `uv run eww sync` then `uv run streamlit run app.py`; no Docker, no services, no Postgres | Two commands and one file to back up; everything runs as your user; Ollama is already installed. | Never for v1. |
 | Scheduling and the laptop problem | GitHub Actions cron at `7 */3 * * *` runs the keyless spine collectors (GDACS, EONET, Copernicus EMS) and commits snapshots plus a run log to an orphan `data` branch using `GITHUB_TOKEN`; the laptop replays unseen snapshots and runs the enrichment collectors with time-range backfill | Free (about 360 of the 2,000 included minutes), no server, no secrets stored in GitHub, and the snapshots are the raw archive. Every enrichment source accepts a time range, so laptop gaps are recoverable. | Snapshot growth above about 5 MB/day packed → switch the sink to Cloudflare R2. Wanting an always-fresh hosted database → Actions writing to Neon. |
@@ -28,6 +28,7 @@
 | Model usage | None for discovery. The default local backend reads figures and places from the source text (`llm:span`): a figure is a number already written next to dead, injured, missing or displaced, and its match is the evidence span; a place is a name in the text that geocodes within twice the candidate's blocking radius; a summary is at most three sentences of the authority text, and any sentence with a digit must carry one of those spans. Claude Sonnet 5 through the Batch API remains the fallback behind `EWW_LLM_BUDGET_USD` (default 10), and every call is written to `llm_call`. Ollama `qwen2.5:7b-instruct` is still selectable with `EWW_LLM_BACKEND=ollama` | A figure may be stored only when its span is already in the source, so asking a chat model to invent the JSON is the wrong tool and, measured 2026-09-25, too slow to be the default. The span reader scored the golden set at 100% hazard, 100% places, 100% figures and 0 span violations, at $0. | Golden place or figure exact-match below 80% on text that does not spell the number next to the word → a one-pass classifier for the missing hazard only. Cloud only if that also misses, still under the cap. |
 | Media | References and provenance only: URL, page URL, discovery time, thumbnail URL; rendered by URL in the sidebar with a plain link as fallback | Costs nothing, keeps storage flat, and makes publication a policy change rather than a rewrite. Rendering by URL gives thumbnails without storing a byte. | Wanting cross-source photo de-duplication or an archive → cache thumbnails under 50 KB, a v2 policy change. |
 | Eventual hosting | Streamlit Community Cloud (one private app on the free tier, verified) for the viewer; Cloudflare R2 (10 GB free, verified) holding the SQLite file uploaded by `eww publish`; FastAPI GeoJSON endpoint run locally as proof of the boundary | Free, private, nothing to patch. The single-writer model is what makes publish-by-upload legitimate. | Contributions → Postgres on Neon before anything else. Streamlit Cloud drops private apps → a €5 VPS, which would use the budget. Hugging Face Spaces is no longer a free option for Docker or Gradio apps (verified, Streamlit status unclear). |
+| Shared, contributing version (planned after M7, not started) | Decided by you on 2026-10-01: you plus invited people add events; today's stack (API, SQLite, pipeline) runs on one small managed server (Fly.io, Amsterdam), so SQLite stays the single writer; Cloudflare Access in front for invited logins (free up to 50 users, email one-time PIN); Cloudflare R2 for contributed media (10 GB free, EU jurisdiction) | Keeps the code, runs while the laptop is off, and costs about €6–7 a month; Access gives invited logins without writing an authentication system. This supersedes the "Postgres on Neon first" falsifier above: one server keeps one writer. M6's Streamlit Cloud copy is likely superseded too | More than 50 contributors or public sign-up → accounts in the app; writes from more than one machine or thousands of contributors → Postgres + PostGIS behind the §2 boundary; Fly above about €15 a month → a Hetzner VM |
 | Web technology to learn for v1 | Zero JavaScript, zero CSS. Optional: about 15 lines of templated HTML for popups, skippable by using the sidebar. Concepts only: what a URL with query parameters is; what a GeoJSON file looks like; that the browser talks to localhost:8501. Plus about 40 lines of GitHub Actions YAML | Everything interactive comes from Leaflet through folium; Streamlit renders widgets from Python. | Wanting icons beyond coloured circles → folium `Icon` / `DivIcon`, still Python. |
 | The README's frontend contradiction | Planning against: a disposable local Python viewer is in v1; "website usability" and "front-end design" are out until a real frontend exists | The README's "no frontend needed" means no production website; its MVP interest is in seeing events on a map, which the viewer delivers. | None. |
 | Hazard scope | All GDACS and EONET hazard types are ingested, including earthquakes, volcanoes and tsunamis; the default map filter shows every type and you can hide the geophysical ones | The README's end state says "natural disasters"; the feeds supply geophysical events for free; a filter is cheaper than an argument. | None. |
@@ -129,10 +130,12 @@ Everything free is marked free. Euro figures assume $1 ≈ €0.90; check the ra
 | Reddit Data API | Free, **gated** | 100 queries/minute per OAuth client, but access now requires an approval request; deletion compliance within 48 h | Verified; approval outcome unknown |
 | Open-Meteo (weather at the clicked pin, viewer-time only) | Free | Non-commercial use, no key | Limits: **verify** |
 | Map tiles (OpenStreetMap or CARTO Positron via folium) | Free | Single viewer, light use | OSM tile policy: **verify** |
+| Map tiles for the React map (OpenFreeMap vector tiles, M7) | Free | No key, no registration, no stated limit on map views or requests, commercial use allowed; credit "OpenFreeMap © OpenMapTiles Data from OpenStreetMap"; no SLA, funded by donations | Read on openfreemap.org 2026-10-01 |
 | Electricity for local models | < €1 | ~2 h/day of CPU load ≈ 3 kWh/month | Estimate |
 | Cloud model, optional fallback: Claude Sonnet 5 via the Batch API | €0 by default; hard cap $10 ≈ €9 | Unit cost below; the cap is enforced in code | Prices from Anthropic's table cached 2026-06-24: **verify** |
 | Hosting (M6, optional): Streamlit Community Cloud (one private app) + Cloudflare R2 (10 GB free) | Free | Sleeps after 12 h without traffic, wakes on visit | Verified |
-| **Total** | **€0–€1 by default; ≤ €10 with the cloud fallback switched on** | Ceiling €25 | |
+| Shared, contributing version (planned after M7, not active): Fly.io machine in Amsterdam + volume, Cloudflare Access, R2, a domain | About €5.20 for a 1 GB machine plus the volume; a domain about €1 (**verify**); Access free up to 50 users; R2 free to 10 GB; VAT on Fly **verify** | Read on docs.fly.io/about/pricing, cloudflare.com (Access) and the R2 pricing page, 2026-10-01 | Planned |
+| **Total** | **€0–€1 by default; ≤ €10 with the cloud fallback switched on; about €7 more once the shared version runs** | Ceiling €25 | |
 
 X is deliberately absent. Its API is now pay-per-usage only, at $0.005 per post read (**verify**); 1,000 reads a month would cost about $5, which fits, but it is the only source with a per-item recurring cost that scales with volume, so it is the last social source you would add, not the first.
 
@@ -207,7 +210,7 @@ At this prompt shape Sonnet 5 with caching costs the same as Haiku 4.5 without i
 - **Attach**: scores each new document against candidate events and writes `event_document` with a status; never creates events.
 - **Summarise**: refreshes `event.summary` at most once per day per active event, and only when new attached documents add information.
 - **Review**: a Streamlit tab where you accept or reject merge proposals and candidate attachments. This is the entire human-in-the-loop.
-- **API**: `eww.api.events_geojson(filters)`, one Python function returning a GeoJSON FeatureCollection; exposed as a CLI exporter from M0 and as a FastAPI route in M6.
+- **API**: `eww.api.events_geojson(filters)`, one Python function returning a GeoJSON FeatureCollection; exposed as a CLI exporter from M0 and over HTTP by `eww serve` (FastAPI, local only) from M7.
 - **Viewer**: Streamlit + folium; consumes only what the API returns; disposable by design.
 
 **Process count.** One long-lived process (`streamlit run app.py`) and one short-lived command (`eww sync`) that runs the chain above and exits. GitHub Actions runs the spine collector. Nothing else is resident on your machine.
@@ -220,7 +223,7 @@ At this prompt shape Sonnet 5 with caching costs the same as Haiku 4.5 without i
 | Storage engine | SQLite, WAL mode | Postgres + PostGIS + pgvector (Neon or Supabase) when a second writer appears | `db.py` connection and placeholder style; the DDL in §3 is written to be portable |
 | Extractor backend | Ollama on the laptop | Claude through the Batch API | One class behind the `Extractor` interface; the ledger and the cap are shared |
 | Geocoder provider | Local gazetteer, GeoNames web service, Nominatim | Self-hosted Photon, or a paid provider | One class behind the `Geocoder` interface; `geocode_cache` is provider-keyed and stays |
-| Viewer | Streamlit + folium reading `events_geojson()` in-process | **Decided 2026-09-22: a React + MapLibre map in `web/` reading `GET /events.geojson`, `/events/{id}/documents` and `/attributions` from `eww serve` (M7)** | Nothing in the pipeline. The FastAPI wrapper is about 30 lines; the frontend holds no data logic |
+| Viewer | Streamlit + folium reading `events_geojson()` in-process | **Decided 2026-09-22: a React + MapLibre map in `web/` reading `GET /events.geojson`, `/events/{id}/documents`, `/attributions`, `/forecast`, `/hazards` and `/severity-steps` from `eww serve` (`/health` is for scripts) (M7, built before M6 by your decision of 2026-10-01)** | Nothing in the pipeline. The FastAPI wrapper is about 30 lines; the frontend holds no data logic |
 
 **The GeoJSON contract, the interface you must protect**
 
@@ -229,17 +232,26 @@ events_geojson(since, until=None, hazard=None, min_severity=0.0, status=None,
                bbox=None, include_footprints=False, limit=2000) -> FeatureCollection
 
 FeatureCollection.meta   (a top-level "meta" member; RFC 7946 allows foreign members)
-  data_as_of, last_collector_run_at, missed_runs_7d, expected_runs_7d, generated_at, filters_applied
+  data_as_of, last_collector_run_at, missed_runs_7d, expected_runs_7d, pipeline_stale, generated_at,
+  filters_applied
   (last_collector_run_at is the last run that produced data; expected_runs_7d was added in M1 so the
-   viewer can say "n of m runs missed")
+   viewer can say "n of m runs missed"; pipeline_stale (bool, M7) is true when missed_runs_7d >
+   STATUS_RED_MISSED_RUNS or the last run is missing or older than STATUS_RED_STALE_HOURS, so the
+   status strip turns red without computing it)
 
 Feature, one per event; geometry = Point at the primary centroid
   properties:
     event_id, hazard_type, title, status, started_at, ended_at, last_observed_at,
-    severity_score (0..1), severity_label, country_iso3, precision, glide_number,
-    source_ids [..], ems_activation (bool), doc_count, post_count, video_count,
+    severity_score (0..1), severity_label, severity_band, country_iso3, country_name, precision,
+    glide_number, source_ids [..], ems_activation (bool), doc_count, post_count, video_count,
     summary, summary_updated_at, thumbnail_url (a reference, may be null),
     detail_url (the primary source's own page for the event)
+  (country_name, M7: the GeoNames English name for country_iso3 from eww/data/countries.csv,
+   null when there is no country or the code is unknown)
+  (severity_band, M7: "Green", "Orange" or "Red", the highest config.GDACS_SEVERITY threshold that
+   severity_score reaches, the same thresholds as GET /severity-steps, so the map's severity rings
+   agree with the minimum-severity filter; null when the score is null or below Green.
+   severity_label stays the primary source's own words)
 
 Feature, only when include_footprints=True; geometry = Polygon or LineString
   properties: event_id, role ("footprint" | "track" | "impact_area"), observed_at, source_id
@@ -252,6 +264,10 @@ limit=0 returns every event in the window; the CLI exporter and the viewer pass 
 count always equals the SQL count of events observed in the window (added after M0).
 ems_activation is true when a record with source_id 'copernicus' sits on the event (M2);
 `eww export --count` prints the number of Point features for filter-parity checks (M2).
+limit must be 0 or more, min_severity within 0..1 and every bbox value finite; anything else
+raises ValueError, which `eww serve` returns as HTTP 400 (M7).
+heartbeat_meta() returns the meta members except filters_applied, for GET /health; meta and
+/health read the same function, so they cannot disagree (M7).
 ```
 
 **What you must not do, so the viewer swap stays cheap**
@@ -811,35 +827,39 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 
 **Goal.** A private hosted copy, without touching the pipeline.
 
-**In scope.** `eww publish`: `VACUUM INTO` a copy of the database, upload to a Cloudflare R2 bucket with boto3; a private Streamlit Community Cloud app deployed from this repo that downloads the file at start and every 30 minutes, with R2 credentials in Streamlit's secrets manager and no model libraries imported (the hosted viewer is read-only); `eww serve`: a FastAPI `GET /events.geojson` run locally as the proof of the boundary.
+**In scope.** `eww publish`: `VACUUM INTO` a copy of the database, upload to a Cloudflare R2 bucket with boto3; a private Streamlit Community Cloud app deployed from this repo that downloads the file at start and every 30 minutes, with R2 credentials in Streamlit's secrets manager and no model libraries imported (the hosted viewer is read-only). `eww serve` already exists from M7, which you put before M6 on 2026-10-01; M6 adds nothing to it.
 
 **Out.** Public access, authentication beyond Streamlit's private-app login, a custom domain.
 
 **Exit criteria.**
 1. A phone on mobile data opens the app URL, logs in, and shows the same pin count as the laptop within 30 minutes of `eww publish`.
 2. An incognito browser without login cannot see the app.
-3. `curl "http://localhost:8000/events.geojson?since=7d&hazard=flood"` returns a FeatureCollection identical to `eww export --since 7d --hazard flood`.
+3. `curl "http://localhost:8710/events.geojson?since=7d&hazard=flood"` returns a FeatureCollection identical to `eww export --since 7d --hazard flood`.
 4. R2 usage stays under 1 GB and the hosted app starts in under 60 seconds.
 
 **Risk retired.** A hosting path exists that does not require a rewrite.
 
-### M7 — A real map: a React frontend on the GeoJSON boundary (medium; large as a first JavaScript project)
+### M7 — A real map: a React frontend on the GeoJSON boundary (medium; large as a first JavaScript project) — DONE 2026-10-02, before M6
+
+**Result.** `eww report frontend --build` wrote `docs/m7.md` on 2026-10-02 against a copy of the database refreshed that day. (1) `npm run build`: 0 TypeScript errors; first-load JavaScript 490.6 KB gzipped (shell, map chunk and MapLibre worker) against 600 KB. (2) Parity: default view (14 days, every hazard, severity ≥ 0) 1,048 from `events_geojson()`, `eww export --count`, `GET /events.geojson` and the map's own count; flood, 7 days, severity ≥ 0.66: 3 = 3 = 3 = 3. (3) Tropical Cyclone DUJUAN-26 showed every Details field, country by name; its Posts tab listed the 13 posts `/events/{id}/documents` returns, each linking out, 6 with an image by URL; News showed its empty state (no news source runs since M3 was parked), so collapsed copies were exercised only on test data; the forecast at the pin took 0.375 s for 5 days. (4) A reload restored the 30-day window and the selected event (2,130 pins both times). (5) impeccable audit in both themes: 0 serious, 0 moderate, 3 minor; 375 px checked. (6) 10 Python files changed, none outside `config.FRONTEND_PYTHON_SCOPE`; `uv run pytest` passes; app.py runs under Streamlit's AppTest. All six criteria met. Added at your request along the way: a dark default with a light theme, a basemap chooser (five OpenFreeMap styles, NASA GIBS daily imagery, Esri World Imagery once you create a key), severity rings from a new `severity_band` field, clusters drawn as pies of their hazard mix and ending at zoom 4, and the ports 5710 (map) and 8710 (API), which avoid another project's 5173 and 8000. Found on the way, for the Python side: DUJUAN-26 has `ended_at` (27 Sept) after `last_observed_at` (23 Sept), probably GDACS's `todate` running past its last episode.
 
 **Decided 2026-09-22.** You chose React for the frontend and added the `impeccable` (design) and `react-best-practices` (Vercel's performance rules) skills to the repository. This lifts the "no JavaScript or CSS" constraint for one directory, `web/`, and lifts the seven-milestone ceiling. The pipeline, the schema and the GeoJSON contract do not change: §2 was written so that this milestone is additive.
 
 **Goal.** Replace the disposable Streamlit map with a React map that reads only the HTTP API, looks like the product the README describes (a world map you pan, zoom, filter and click), and is designed rather than assembled.
 
-**In scope.** `eww serve` (FastAPI; from M6, or created here if M6 was skipped) as the only thing the frontend talks to: `GET /events.geojson` with the contract's filters, `GET /events/{event_id}/documents` wrapping `event_documents()`, `GET /attributions`, `GET /health`, CORS for the Vite dev server. A Vite + React + TypeScript app in `web/`: MapLibre GL JS over free tiles (OpenStreetMap raster with attribution, or OpenFreeMap vector tiles, terms **verify**), pins coloured by hazard with clustering, a footprints toggle, geolocation, filters (hazard, window, minimum severity) reflected in the URL, a status strip from `meta`, a side panel with the Details and News tabs, an About page from `/attributions`, a layout that works on a phone. Designed with impeccable (`init` and `shape` before code, `audit` and `polish` after; PRODUCT.md and DESIGN.md committed) and built to the react-best-practices rules (no request waterfalls, the map library lazy-loaded, a small bundle). `eww report frontend` writes `docs/m7.md`: pin-count parity between the API and `events_geojson()`, the built bundle's size, the audit result.
+**Decided 2026-10-01.** M7 comes before M6, and `eww serve` is built here as its first piece. The side panel has four tabs: Details, News, Posts and Weather. Posts holds posts, photos and videos together: each links to the original, with its photo or video shown from its URL where possible.
+
+**In scope.** `eww serve` (FastAPI, bound to 127.0.0.1, read-only) as the only thing the frontend talks to: `GET /events.geojson` with the contract's filters, `GET /events/{event_id}/documents` wrapping `event_documents()`, `GET /attributions`, `GET /forecast?lat=&lon=` wrapping `forecast()` (cached in memory for 30 minutes, never stored), `GET /health` from `heartbeat_meta()` (with `pipeline_stale`, the status strip's red rule), `GET /hazards` (the hazard_type ids in config order, so the filter does not copy the list), `GET /severity-steps` (the minimum-severity steps with label and hint, built from `GDACS_SEVERITY` and `EMS_SEVERITY_FLOOR`, so the filter does not copy the rule), CORS for the Vite dev server only. Three read-only additions to `eww.api` serve it: `heartbeat_meta()`, `event_exists()` (for a 404 on an unknown event) and range checks on the filters (§2). A Vite + React + TypeScript app in `web/`: MapLibre GL JS over OpenFreeMap vector tiles with their credit line (your choice of 2026-10-01; the style URL sits in one constant, so OpenStreetMap raster tiles are a one-line fallback if OpenFreeMap goes away), pins coloured by hazard with clustering, a footprints toggle, geolocation, filters (hazard, window, minimum severity) reflected in the URL, a status strip from `meta`, a side panel with the Details, News, Posts and Weather tabs, an About page from `/attributions`, a layout that works on a phone. Designed with impeccable (`init` and `shape` before code, `audit` and `polish` after; PRODUCT.md and DESIGN.md committed) and built to the react-best-practices rules (no request waterfalls, the map library lazy-loaded, a small bundle). `eww report frontend` writes `docs/m7.md`: pin-count parity between the API and `events_geojson()`, the built bundle's size, the audit result.
 
 **Out.** Hosting the React build (M6's private Streamlit copy stays the phone path until the API has authentication), write actions (accept and reject stay in the Streamlit Review tab because the API is read-only), offline tiles, anything in the pipeline.
 
 **Exit criteria.**
 1. `npm run build` in `web/` completes with zero TypeScript errors, and the JavaScript transferred on first load is under 600 KB gzipped, map library included (`eww report frontend` reads `web/dist`).
 2. Parity: for the default view and for "flood, 7 days, severity ≥ 0.66", the pin count on the React map equals `eww export ... --count` and the number of Point features from `GET /events.geojson` with the same parameters.
-3. Clicking a pin shows title, hazard, severity label, started, last observed, country, sources and the detail link, and its News tab lists what `GET /events/{id}/documents` returns, syndicated copies collapsed.
+3. Clicking a pin shows title, hazard, severity label, started, last observed, country, sources and the detail link. Its News tab lists the articles and reports and its Posts tab the posts and videos that `GET /events/{id}/documents` returns, syndicated copies collapsed. Its Weather tab shows the current conditions and a 5-day forecast from `GET /forecast` for the pin's coordinates within 3 seconds.
 4. Filters and the selected event live in the URL: reloading the page restores them.
 5. impeccable `audit` reports no serious accessibility violation, and the layout works at 375 px wide.
-6. The Python side changed only in `eww serve`; `uv run pytest` passes and `uv run streamlit run app.py` still runs.
+6. The Python side changed only in `eww serve` (`eww/serve.py`); the `eww.api` additions (`heartbeat_meta()`, `event_exists()`, range checks on the filters, `hazards`, `pipeline_stale`, `country_name`, `severity_band`, `severity_steps()` and the basemap attribution entries); the read-only helpers in `eww/db.py`; `eww/cli.py` (the `serve` command and the export helpers); `eww/config.py`; `eww/frontend_report.py` (the list is `config.FRONTEND_PYTHON_SCOPE`); `uv run pytest` passes and `uv run streamlit run app.py` still runs.
 
 **Why it might overrun.** A first JavaScript project: Node, TypeScript, Vite and MapLibre are all new. The mitigation is the boundary: the frontend holds no data logic, so every bug is a display bug, and the two skills carry the design and performance judgement.
 
@@ -1368,10 +1388,8 @@ TASK
 4. Deploy on Streamlit Community Cloud as a private app from this GitHub repository (main, app.py),
    R2 credentials in the app's secrets manager, Python 3.12. Write docs/hosting.md with the exact steps,
    the one-private-app limit of the free tier, and how to remove the app.
-5. `eww serve`: FastAPI + uvicorn on localhost:8000 with GET /events.geojson mapping query parameters
-   (since, until, hazard repeated, min_severity, status, bbox, include_footprints, limit) onto
-   events_geojson(), GET /health returning the heartbeat meta, permissive CORS for localhost. This is the
-   URL a future JavaScript map would fetch; it adds no logic of its own.
+5. `eww serve` already exists from M7 (built before M6): reuse it as it is and add nothing to it. The
+   hosted app stays the Streamlit viewer; the API has no authentication and stays on localhost.
 
 CONSTRAINTS
 The hosted app is read-only and holds no pipeline code paths. No secrets in the repo. The hosted app
@@ -1382,7 +1400,7 @@ DEFINITION OF DONE
 1. A phone on mobile data opens the app URL, logs in, and shows the same pin count as the laptop within
    30 minutes of `eww publish`.
 2. An incognito browser without login cannot see the app.
-3. curl "http://localhost:8000/events.geojson?since=7d&hazard=flood" returns a FeatureCollection
+3. curl "http://localhost:8710/events.geojson?since=7d&hazard=flood" returns a FeatureCollection
    identical to `eww export --since 7d --hazard flood`.
 4. R2 usage < 1 GB; the hosted app starts in under 60 seconds.
 ```
@@ -1399,8 +1417,10 @@ explain the toolchain as you introduce it and keep the frontend's data logic at 
 first; no terms-of-service violations (tile providers want attribution and light use). Read
 docs/architecture.md §2 (the GeoJSON contract is the whole interface; protect it) and §4 (M7), then the
 impeccable and react-best-practices skills under .claude/skills, before writing anything.
-STATE: M0–M6 done or parked (§4 says which). `eww sync` maintains data/eww.sqlite; `eww serve` exists if
-M6 delivered it. eww.api exposes events_geojson(), event_documents(event_id) and attributions().
+STATE: M0–M5 done, built or parked (§4 says which); M6 is not started, because M7 comes first (decided
+2026-10-01). `eww sync` maintains data/eww.sqlite. eww.api exposes events_geojson(),
+event_documents(event_id), attributions() and forecast(lat, lon); step 1 adds heartbeat_meta(),
+event_exists(event_id) and range checks on the filters.
 GOAL: a React map that reads only the HTTP API and looks like the product README.md describes.
 
 DOCS: when the work is done, write docs/m7.md — this milestone's record, written by the command that
@@ -1409,22 +1429,32 @@ measures it (`eww report frontend`), in the shape of docs/m2.md — and update d
 eww/config.py has milestone_doc(n).
 
 TASK
-1. `eww serve` (create it if M6 did not): FastAPI + uvicorn on localhost:8000. GET /events.geojson maps
-   the query parameters (since, until, hazard repeated, min_severity, status, bbox, include_footprints,
-   limit) onto events_geojson(); GET /events/{event_id}/documents onto event_documents(); GET
-   /attributions onto attributions(); GET /health returns the heartbeat meta. CORS for the Vite dev
-   server. No logic of its own: every filter is applied inside eww.api.
+1. `eww serve`: FastAPI + uvicorn on 127.0.0.1:8710 (the API has no authentication). It opens SQLite
+   read-only and never migrates: a database whose schema is behind the code is refused at start. GET
+   /events.geojson maps the query parameters (since, until, hazard repeated, min_severity, status
+   repeated, bbox as min_lon,min_lat,max_lon,max_lat, include_footprints, limit) onto events_geojson();
+   GET /events/{event_id}/documents onto event_documents(), 404 for an unknown id; GET /attributions
+   onto attributions(); GET /forecast?lat=&lon= onto forecast(), cached in memory for
+   FORECAST_CACHE_TTL_S and never stored; GET /health returns heartbeat_meta(), including
+   pipeline_stale; GET /hazards returns the hazard_type ids in config order; GET /severity-steps returns
+   the minimum-severity steps (value, label, hint) from severity_steps(). CORS for the Vite dev
+   server only, GET only. No logic of its own: every filter and every range check is applied inside
+   eww.api, and its ValueError becomes HTTP 400.
 2. Design before code: run the impeccable skill's `init` (PRODUCT.md from README.md and
    docs/architecture.md §0) and `shape` for the map surface in Operate mode. Commit PRODUCT.md and the
    surface brief before the first component.
 3. Scaffold web/ with Vite + React + TypeScript (npm). Dependencies: react, react-dom, maplibre-gl, and
    nothing else until a need is shown. Scripts: dev, build, preview, typecheck.
-4. The map: MapLibre GL JS over free tiles with the credit line shown; circle markers coloured by
+4. The map: MapLibre GL JS over OpenFreeMap vector tiles (style URL in one constant) with the credit line shown; circle markers coloured by
    hazard_type with clustering at low zoom; footprints as a toggleable GeoJSON layer; a geolocation
    control; filters (hazard multiselect, window 1–90 days, minimum severity steps); a status strip
-   from `meta`; a side panel for the clicked feature with Details and News tabs (news from
-   /events/{id}/documents, syndicated copies collapsed, thumbnail by URL with the link as fallback); an
-   About page from /attributions. Filters and the selected event_id live in the URL query.
+   from `meta`; a side panel for the clicked feature with Details, News, Posts and Weather tabs. News
+   and Posts both come from /events/{id}/documents, split by `kind` as app.py does: News holds the
+   articles and reports, syndicated copies collapsed, thumbnail by URL with the link as fallback; Posts
+   holds posts, photos and videos together, each linking to the original, with the photo or video
+   shown from its URL where possible and the link as fallback. Weather shows current conditions and
+   the 5-day forecast from /forecast at the pin's coordinates, with the Open-Meteo credit. An About
+   page from /attributions. Filters and the selected event_id live in the URL query.
 5. Follow react-best-practices: fetch /events.geojson once per filter change and derive everything else
    in memory; lazy-load maplibre-gl; fetch documents when a pin is clicked, never before; no derived
    state in useState; no request waterfalls.
@@ -1443,11 +1473,16 @@ DEFINITION OF DONE
 1. `npm run build` completes with zero TypeScript errors; first-load JavaScript under 600 KB gzipped.
 2. Pin-count parity for the default view and for flood / 7 d / severity ≥ 0.66 across `eww export
    --count`, GET /events.geojson and the map.
-3. A clicked pin shows title, hazard, severity label, dates, country, sources and the detail link, and
-   its News tab matches GET /events/{id}/documents.
+3. A clicked pin shows title, hazard, severity label, dates, country, sources and the detail link; its
+   News and Posts tabs match GET /events/{id}/documents, and its Weather tab shows GET /forecast for
+   the pin within 3 seconds.
 4. Filters and the selected event survive a page reload through the URL.
 5. impeccable `audit`: no serious accessibility violation; the layout works at 375 px.
-6. Python changed only in `eww serve`; pytest passes and the Streamlit app still runs.
+6. Python changed only in eww serve (eww/serve.py); the eww.api additions (heartbeat_meta, event_exists,
+   range checks, hazards, pipeline_stale, country_name, severity_band, severity_steps, attribution
+   entries); the read-only helpers in eww/db.py; eww/cli.py (serve and the export helpers);
+   eww/config.py; eww/frontend_report.py (config.FRONTEND_PYTHON_SCOPE). pytest passes and the
+   Streamlit app still runs.
 ```
 
 ## 7. Open questions
@@ -1485,7 +1520,14 @@ Only things that need your input or an external check.
 13. **GDELT Web NGrams as the news path, recorded 2026-09-22, not built.** Measured on the 14:31Z batch: `toc.json.gz` 478 KB, 3,163 articles, fields ID/date/img/lang/title/url, 92% with an image, languages en 982 / es 310 / de 222 / it 198 / ru 158 / el 149; 1.1% of titles pass the hazard lexicon, about 3,300 a day; files from seven days back still served. The quadgram file (11.9 MB per batch, 1.1 GB a day) is out by your decision. Building it means a firehose instead of per-event queries (no query prior in the score, so the 90% precision criterion is where it would be felt), a "last batch processed" marker instead of `enrichment_run`, twenty times the extraction volume the cost model assumed, and the path `gdeltv5/weblegacy` is described as transitional: **verify** before relying on it.
 14. **typesafe.ai Jev as the classifier for that firehose, your idea of 2026-09-22, not built.** Jev is typesafe.ai's first "System One" model (blog 2026-09-15): structured, type-safe outputs constrained to a schema you define, with calibrated probabilities, 70 to 500 ms, input $0.042 per million tokens, output free, hosted API in early access, served from the US West Coast. Classifying 3,300 titles a day into the twelve hazard types plus "not a hazard" would cost about €0.15 a month and would catch what the lexicon cannot (metaphor, retrospectives). It fits the M4 `Extractor` interface as a third backend beside Ollama and Claude, and as the pre-filter of item 13. **Verify** before use: that early access is open to a personal project, the terms, whether a user-defined schema is accepted, and where the data goes.
 15. **Collection de-prioritised, 2026-09-22.** M1 to M3 went into collecting and left a tested pipeline with no news in it. Your decision: proceed to M4 through M7 on the spine as it is, and reopen news only when a source exists (ReliefWeb appname, item 4; or items 13 and 14).
-16. **React as a first JavaScript project (M7).** The risk is the toolchain, not the design: Node, TypeScript, Vite and MapLibre are all new to you. What keeps it bounded is the rule that the frontend holds no data logic; if the map needs a field, it is added to `eww.api`. Decide after M7's `shape` step whether MapLibre with raster OpenStreetMap tiles or a free vector-tile provider such as OpenFreeMap is the basemap (**verify** the provider's terms and attribution).
+16. **React as a first JavaScript project (M7), done 2026-10-02.** The toolchain risk did not materialise: the frontend holds no data logic, and every rule it needed was added to `eww.api`. Open: whether to add vitest for the frontend's small label maths. The original note: the risk is the toolchain, not the design: Node, TypeScript, Vite and MapLibre are all new to you. What keeps it bounded is the rule that the frontend holds no data logic; if the map needs a field, it is added to `eww.api`. The basemap is decided (2026-10-01): OpenFreeMap vector tiles, whose terms were read that day (no key, no stated limits, commercial use allowed, no SLA). Its risk is a one-person service funded by donations; if it goes away, the style URL constant switches to OpenStreetMap's raster tiles under their usage policy.
+
+17. **Contributed events, planned after M7 (your request of 2026-10-01).** You and invited people press +, place a pin, and give a name, a description or link, an event type (an existing one, or a new one you approve) and a photo or video; contributions about the same event later merge into one pin and gather the news and posts of that place and type. Decided: who (you plus invited people) and where (§1, "Shared, contributing version"). Decided on 2026-10-01 and 2026-10-02, all yours:
+   - **How a contribution becomes an event.** A contribution is an observation, a source record from a new contributions source, so `resolve` applies the §3 identity rules. It first shows as its own pin, unconfirmed (the reserved `candidate` status): same symbol, paler colour. Above the auto-merge threshold in `identity.yaml` it merges into the matching event, whose pin grows and gets a larger circle containing the member pins, centred on their average position; between the thresholds it goes to the Review tab. The merged event summarises title and description from its contributions and gathers their photos, links, news and posts; each person's own text stays readable.
+   - **Media.** Links first (YouTube, Bluesky, other socials, news), stored like documents and embedded only when clicked. Photos are uploaded up to about 10 MB, shrunk in the browser and re-encoded on the server to about 2,000 pixels on the long side, with camera data (GPS, device) removed, and stored in R2: this changes the §1 Media row for contributed photos only. No video uploads; short clips (about 5 seconds, capped and scaled down) are your preference for a later feature.
+   - **Event types.** They become data: a contributor proposes a type, it shows as proposed with a plain symbol, and you approve or reject it in an admin screen; an approved type gets the default matching rules until its own symbol and rules are made.
+   - **Moderation.** Mixed: pins, text and links show at once, marked unconfirmed, and you can hide or remove them; uploaded photos stay hidden until you approve them.
+   The domain price and VAT on Fly are **verify**. Next: exit criteria, a prompt and a record make it a milestone after M7; M7 only keeps a slot free for the + control.
 
 ## Revision log
 
@@ -1498,3 +1540,8 @@ Only things that need your input or an external check.
 - **2026-09-25 — M4 done with a span reader, not a 7B chat.** `qwen2.5:7b-instruct` was pulled and a golden run started; each call took long enough that the run was stopped at 16 of 40 (partial score in the first `docs/m4.md`: places 53.3%, figures 47.5%, because the rest never ran). The default backend is now `local`: figures and places are read from the source text, summaries are sentences of the authority text, and Claude stays behind the $10 cap. Re-measured the same day: hazard 30/30, places 30/30, figures 40/40, span violations 0, cost $0. Schema version 4 adds `event.summary_evidence`. Hosted Jev (typesafe.ai) was not called. Sections touched: 0 (dateline), 1, 1b, 3, 4.
 - **2026-09-26 — M5 spends nothing while pre-production.** Your decision: the project has no audience and no revenue, so Prompt M5 must not draw on the €25 ceiling. A source whose free path needs a credit card or a billing account (YouTube quota, Open-Meteo's customer API, any cloud model) is skipped. Sections touched: 0 (dateline), 4, 6.
 - **2026-09-26 — M5 built and measured, coverage bar not met.** Bluesky, YouTube, Mastodon and a flagged Reddit collector; posts and videos go through `attach_document` and are excluded from the model; deletion sweeps on every sync; sidebar tabs News, Posts, Videos, Weather; `eww.weather` calls the public Open-Meteo endpoint and stores nothing, and the viewer reaches it only through `eww.api.forecast()`; schema version 5 keeps YouTube quota rows out of the heartbeat view; `eww report social` writes `docs/m5.md`. Measured: 9 of 463 events (1.9%) with an attached post, 0 of 50 posts labelled, 0 YouTube searches, no media files, one forecast in 0.254 s. Bluesky, YouTube and Reddit were skipped for missing credentials, not purchased. Sections touched: 0 (dateline), 1, 2, 3, 4, 6 (Prompt M7 CONTEXT).
+- **2026-10-01 — M5 merged short of its bar; M7 before M6; a four-tab panel.** Your decisions: PR #2 merged with M5 built and short of the coverage bar, as M3 was parked; M7 comes before M6, with `eww serve` built as M7's first piece; the React side panel has Details, News, Posts (posts, photos and videos together, media shown from its URL where possible) and Weather, which adds `GET /forecast` to `eww serve`. To keep every rule in `eww.api`, the contract gains range checks on the filters and `heartbeat_meta()` for `GET /health`, and the API module gains `event_exists()`; M7's exit criterion 6 now names these three additions. Prompt M6 reuses `eww serve` instead of creating it. Sections touched: 0 (dateline), 1, 2, 4, 6 (Prompts M6 and M7).
+- **2026-10-01 — OpenFreeMap basemap; two contract fields; a read-only server.** Your decision: the React map draws OpenFreeMap vector tiles (terms read on openfreemap.org that day: no key, no stated limits, no SLA), with OpenStreetMap raster tiles as the one-line fallback; Streamlit keeps its OpenStreetMap tiles. So that the frontend renders and never decides, the contract gained `GET /hazards` and `meta.pipeline_stale` (app.py's red-strip rule, now computed in `eww.api`), and `eww serve` opens the database read-only and refuses an outdated schema instead of migrating it. Sections touched: 1b, 2, 4, 6 (Prompt M7), 7 (item 16).
+- **2026-10-01 — Contributed events planned after M7.** Your decisions: you plus invited people will add events, and the shared version will run today's stack on one Fly.io server in Amsterdam behind Cloudflare Access, with media on R2 (prices read that day; Supabase ruled out: its free plan pauses and keeps no backups, and Pro with VAT is above the ceiling). Nothing is built yet; M7 finishes first. Recorded the decision in §1, the planned cost in §1b, and the shape and the open questions in §7 item 17. Sections touched: 1, 1b, 7.
+- **2026-10-02 — Contributed events designed.** Your four decisions on how a contribution becomes an event (unconfirmed pin, auto-merge into a bigger pin with a containing circle), media (links first, shrunk photo uploads, no video uploads yet), event types as data with your approval, and mixed moderation (photos approved first) are in §7 item 17. Sections touched: 7.
+- **2026-10-02 — M7 done.** `docs/m7.md` measured on refreshed data: build 0 errors and 490.6 KB first load; parity 1,048 and 3 across database, export, API and map; forecast 0.375 s; audit 0 serious; Python changed only inside the agreed scope. Marked M7 done in §4 with its numbers and closed the toolchain risk in §7 item 16. Sections touched: 4, 7.

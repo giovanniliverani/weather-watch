@@ -41,6 +41,12 @@ uv run pytest                                              # tests against a tem
 
 Every command is idempotent: run `collect` twice and the second run reports 0 new rows; run `resolve` twice and the second changes nothing.
 
+### Run the API (M7)
+
+`uv run eww serve` starts the read-only HTTP API the React frontend in `web/` reads, at http://127.0.0.1:8710 (`--host`, `--port` to change; `--db` picks the SQLite file as for every command). It has no authentication, so keep it on 127.0.0.1. It opens the database read-only and never creates or migrates it: on a fresh clone, or after a migration lands, run `uv run eww init-db` (or a sync) first, and restart `eww serve` after a sync that migrated. Endpoints, all GET: `/events.geojson` (the contract's filters as query parameters: `since=7d&hazard=flood&hazard=wildfire&min_severity=0.66&bbox=min_lon,min_lat,max_lon,max_lat&include_footprints=true&limit=0`, where `limit=0` means every event in the window), `/events/{event_id}/documents`, `/attributions`, `/forecast?lat=..&lon=..` (Open-Meteo at one point, cached in memory for 30 minutes), `/hazards` (the hazard types, in order), `/severity-steps` (the minimum-severity filter's steps, from config) and `/health` (data freshness and the collector heartbeat, with `pipeline_stale` true when runs are missing or late; for scripts, the map reads the same values from the events answer). Out-of-range filters answer 400; a filter that is not a number answers 422. Interactive docs are at http://127.0.0.1:8710/docs. Browsers may call it only from the page addresses in `SERVE_CORS_ORIGINS` in `eww/config.py` (http://localhost:5710 and http://127.0.0.1:5710, the map's dev and preview server); it refuses other pages.
+
+`uv run eww report frontend` writes `docs/m7.md`, M7's exit criteria: the size of `web/dist` (`--build` runs `npm run build` first and times it), pin parity between `events_geojson()`, `eww export --count` and the API, one sample pin with a timed forecast (`--no-network` skips it), `web/audit.json`, and the Python files changed against `origin/main`. Pass the pins you counted on the map with `--map-count-default N --map-count-flood N`.
+
 ### Collection while the laptop is off (M1)
 
 [.github/workflows/collect.yml](.github/workflows/collect.yml) runs the same `eww collect` every three hours in GitHub Actions (cron `7 */3 * * *`, UTC) and commits the raw snapshots and the run log to the orphan `data` branch. Nothing needs a secret. The laptop replays what it has not seen:

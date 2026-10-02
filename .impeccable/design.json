@@ -1,0 +1,874 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-01T14:59:34Z",
+  "title": "Design System: Extreme Weather Watch",
+  "extensions": {
+    "colorMeta": {
+      "ground": {
+        "role": "neutral",
+        "displayName": "Basemap Black",
+        "canonical": "#0c0c0c",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Charcoal Desk",
+        "canonical": "#171717",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "raise": {
+        "role": "neutral",
+        "displayName": "Raised Charcoal",
+        "canonical": "#212121",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#2f2f2f",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Chart Ink",
+        "canonical": "#e8e8e8",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Pencil Grey",
+        "canonical": "#a8a8a8",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Periwinkle Signal",
+        "canonical": "#8ab4ff",
+        "tonalRamp": [
+          "oklch(15% 0.072 262)",
+          "oklch(26% 0.103 262)",
+          "oklch(38% 0.117 262)",
+          "oklch(49% 0.117 262)",
+          "oklch(61% 0.117 262)",
+          "oklch(72% 0.106 262)",
+          "oklch(84% 0.076 262)",
+          "oklch(95% 0.034 262)"
+        ]
+      },
+      "accent-ink": {
+        "role": "primary",
+        "displayName": "Accent Ink",
+        "canonical": "#0c1424",
+        "tonalRamp": [
+          "oklch(15% 0.021 263)",
+          "oklch(26% 0.031 263)",
+          "oklch(38% 0.035 263)",
+          "oklch(49% 0.035 263)",
+          "oklch(61% 0.035 263)",
+          "oklch(72% 0.031 263)",
+          "oklch(84% 0.023 263)",
+          "oklch(95% 0.010 263)"
+        ]
+      },
+      "alarm": {
+        "role": "error",
+        "displayName": "Alarm Red",
+        "canonical": "#ff7a7a",
+        "tonalRamp": [
+          "oklch(15% 0.099 22)",
+          "oklch(26% 0.143 22)",
+          "oklch(38% 0.163 22)",
+          "oklch(49% 0.163 22)",
+          "oklch(61% 0.163 22)",
+          "oklch(72% 0.147 22)",
+          "oklch(84% 0.106 22)",
+          "oklch(95% 0.047 22)"
+        ]
+      },
+      "light-ground": {
+        "role": "neutral",
+        "displayName": "Warm Map Grey",
+        "canonical": "#f2f3f0",
+        "tonalRamp": [
+          "oklch(15% 0.003 122)",
+          "oklch(26% 0.004 122)",
+          "oklch(38% 0.004 122)",
+          "oklch(49% 0.004 122)",
+          "oklch(61% 0.004 122)",
+          "oklch(72% 0.004 122)",
+          "oklch(84% 0.003 122)",
+          "oklch(95% 0.001 122)"
+        ]
+      },
+      "light-surface": {
+        "role": "neutral",
+        "displayName": "White Sheet",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "light-raise": {
+        "role": "neutral",
+        "displayName": "Soft Grey",
+        "canonical": "#f0f0f0",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "light-rule": {
+        "role": "neutral",
+        "displayName": "Hairline (light)",
+        "canonical": "#d6d6d6",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "light-text": {
+        "role": "neutral",
+        "displayName": "Chart Ink (light)",
+        "canonical": "#1b1b1b",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "light-muted": {
+        "role": "neutral",
+        "displayName": "Pencil Grey (light)",
+        "canonical": "#5c5c5c",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "light-accent": {
+        "role": "primary",
+        "displayName": "Chart Blue",
+        "canonical": "#2357c6",
+        "tonalRamp": [
+          "oklch(15% 0.111 263)",
+          "oklch(26% 0.160 263)",
+          "oklch(38% 0.182 263)",
+          "oklch(49% 0.182 263)",
+          "oklch(61% 0.182 263)",
+          "oklch(72% 0.165 263)",
+          "oklch(84% 0.118 263)",
+          "oklch(95% 0.053 263)"
+        ]
+      },
+      "light-accent-ink": {
+        "role": "primary",
+        "displayName": "Accent Ink (light)",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "light-alarm": {
+        "role": "error",
+        "displayName": "Alarm Red (light)",
+        "canonical": "#c62828",
+        "tonalRamp": [
+          "oklch(15% 0.118 27)",
+          "oklch(26% 0.170 27)",
+          "oklch(38% 0.194 27)",
+          "oklch(49% 0.194 27)",
+          "oklch(61% 0.194 27)",
+          "oklch(72% 0.175 27)",
+          "oklch(84% 0.126 27)",
+          "oklch(95% 0.056 27)"
+        ]
+      },
+      "symbol-ink": {
+        "role": "neutral",
+        "displayName": "Symbol Ink",
+        "canonical": "#101317",
+        "tonalRamp": [
+          "oklch(15% 0.006 256)",
+          "oklch(26% 0.008 256)",
+          "oklch(38% 0.009 256)",
+          "oklch(49% 0.009 256)",
+          "oklch(61% 0.009 256)",
+          "oklch(72% 0.009 256)",
+          "oklch(84% 0.006 256)",
+          "oklch(95% 0.003 256)"
+        ]
+      },
+      "hollow-fill": {
+        "role": "neutral",
+        "displayName": "Hollow Fill",
+        "canonical": "#101317",
+        "tonalRamp": [
+          "oklch(15% 0.006 256)",
+          "oklch(26% 0.008 256)",
+          "oklch(38% 0.009 256)",
+          "oklch(49% 0.009 256)",
+          "oklch(61% 0.009 256)",
+          "oklch(72% 0.009 256)",
+          "oklch(84% 0.006 256)",
+          "oklch(95% 0.003 256)"
+        ]
+      },
+      "light-hollow-fill": {
+        "role": "neutral",
+        "displayName": "Hollow Fill (light)",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "hazard-flood": {
+        "role": "tertiary",
+        "displayName": "Flood (dark ground)",
+        "canonical": "#38c6f4",
+        "tonalRamp": [
+          "oklch(15% 0.081 225)",
+          "oklch(26% 0.116 225)",
+          "oklch(38% 0.132 225)",
+          "oklch(49% 0.132 225)",
+          "oklch(61% 0.132 225)",
+          "oklch(72% 0.120 225)",
+          "oklch(84% 0.086 225)",
+          "oklch(95% 0.038 225)"
+        ]
+      },
+      "hazard-tropical-cyclone": {
+        "role": "tertiary",
+        "displayName": "Tropical cyclone (dark ground)",
+        "canonical": "#ff6fb5",
+        "tonalRamp": [
+          "oklch(15% 0.115 352)",
+          "oklch(26% 0.166 352)",
+          "oklch(38% 0.189 352)",
+          "oklch(49% 0.189 352)",
+          "oklch(61% 0.189 352)",
+          "oklch(72% 0.171 352)",
+          "oklch(84% 0.123 352)",
+          "oklch(95% 0.055 352)"
+        ]
+      },
+      "hazard-severe-storm": {
+        "role": "tertiary",
+        "displayName": "Severe storm (dark ground)",
+        "canonical": "#c39bff",
+        "tonalRamp": [
+          "oklch(15% 0.088 301)",
+          "oklch(26% 0.127 301)",
+          "oklch(38% 0.145 301)",
+          "oklch(49% 0.145 301)",
+          "oklch(61% 0.145 301)",
+          "oklch(72% 0.131 301)",
+          "oklch(84% 0.094 301)",
+          "oklch(95% 0.042 301)"
+        ]
+      },
+      "hazard-wildfire": {
+        "role": "tertiary",
+        "displayName": "Wildfire (dark ground)",
+        "canonical": "#ff8a3d",
+        "tonalRamp": [
+          "oklch(15% 0.102 51)",
+          "oklch(26% 0.146 51)",
+          "oklch(38% 0.167 51)",
+          "oklch(49% 0.167 51)",
+          "oklch(61% 0.167 51)",
+          "oklch(72% 0.151 51)",
+          "oklch(84% 0.108 51)",
+          "oklch(95% 0.048 51)"
+        ]
+      },
+      "hazard-heatwave": {
+        "role": "tertiary",
+        "displayName": "Heatwave (dark ground)",
+        "canonical": "#ffe14a",
+        "tonalRamp": [
+          "oklch(15% 0.100 98)",
+          "oklch(26% 0.145 98)",
+          "oklch(38% 0.165 98)",
+          "oklch(49% 0.165 98)",
+          "oklch(61% 0.165 98)",
+          "oklch(72% 0.149 98)",
+          "oklch(84% 0.107 98)",
+          "oklch(95% 0.048 98)"
+        ]
+      },
+      "hazard-coldwave": {
+        "role": "tertiary",
+        "displayName": "Coldwave (dark ground)",
+        "canonical": "#a5f3fc",
+        "tonalRamp": [
+          "oklch(15% 0.047 205)",
+          "oklch(26% 0.068 205)",
+          "oklch(38% 0.077 205)",
+          "oklch(49% 0.077 205)",
+          "oklch(61% 0.077 205)",
+          "oklch(72% 0.070 205)",
+          "oklch(84% 0.050 205)",
+          "oklch(95% 0.022 205)"
+        ]
+      },
+      "hazard-drought": {
+        "role": "tertiary",
+        "displayName": "Drought (dark ground)",
+        "canonical": "#a9b84e",
+        "tonalRamp": [
+          "oklch(15% 0.081 116)",
+          "oklch(26% 0.116 116)",
+          "oklch(38% 0.132 116)",
+          "oklch(49% 0.132 116)",
+          "oklch(61% 0.132 116)",
+          "oklch(72% 0.119 116)",
+          "oklch(84% 0.086 116)",
+          "oklch(95% 0.038 116)"
+        ]
+      },
+      "hazard-landslide": {
+        "role": "tertiary",
+        "displayName": "Landslide (dark ground)",
+        "canonical": "#c4925f",
+        "tonalRamp": [
+          "oklch(15% 0.055 66)",
+          "oklch(26% 0.079 66)",
+          "oklch(38% 0.091 66)",
+          "oklch(49% 0.091 66)",
+          "oklch(61% 0.091 66)",
+          "oklch(72% 0.082 66)",
+          "oklch(84% 0.059 66)",
+          "oklch(95% 0.026 66)"
+        ]
+      },
+      "hazard-volcano": {
+        "role": "tertiary",
+        "displayName": "Volcano (dark ground)",
+        "canonical": "#ff5c57",
+        "tonalRamp": [
+          "oklch(15% 0.122 26)",
+          "oklch(26% 0.175 26)",
+          "oklch(38% 0.199 26)",
+          "oklch(49% 0.199 26)",
+          "oklch(61% 0.199 26)",
+          "oklch(72% 0.180 26)",
+          "oklch(84% 0.129 26)",
+          "oklch(95% 0.058 26)"
+        ]
+      },
+      "hazard-earthquake": {
+        "role": "tertiary",
+        "displayName": "Earthquake (dark ground)",
+        "canonical": "#3ddc97",
+        "tonalRamp": [
+          "oklch(15% 0.100 160)",
+          "oklch(26% 0.144 160)",
+          "oklch(38% 0.164 160)",
+          "oklch(49% 0.164 160)",
+          "oklch(61% 0.164 160)",
+          "oklch(72% 0.148 160)",
+          "oklch(84% 0.106 160)",
+          "oklch(95% 0.047 160)"
+        ]
+      },
+      "hazard-tsunami": {
+        "role": "tertiary",
+        "displayName": "Tsunami (dark ground)",
+        "canonical": "#1fb5a5",
+        "tonalRamp": [
+          "oklch(15% 0.072 183)",
+          "oklch(26% 0.104 183)",
+          "oklch(38% 0.118 183)",
+          "oklch(49% 0.118 183)",
+          "oklch(61% 0.118 183)",
+          "oklch(72% 0.107 183)",
+          "oklch(84% 0.077 183)",
+          "oklch(95% 0.034 183)"
+        ]
+      },
+      "hazard-other": {
+        "role": "tertiary",
+        "displayName": "Other (dark ground)",
+        "canonical": "#8e959d",
+        "tonalRamp": [
+          "oklch(15% 0.009 252)",
+          "oklch(26% 0.013 252)",
+          "oklch(38% 0.014 252)",
+          "oklch(49% 0.014 252)",
+          "oklch(61% 0.014 252)",
+          "oklch(72% 0.013 252)",
+          "oklch(84% 0.009 252)",
+          "oklch(95% 0.004 252)"
+        ]
+      },
+      "light-hazard-flood": {
+        "role": "tertiary",
+        "displayName": "Flood (light ground)",
+        "canonical": "#0090bc",
+        "tonalRamp": [
+          "oklch(15% 0.073 229)",
+          "oklch(26% 0.105 229)",
+          "oklch(38% 0.120 229)",
+          "oklch(49% 0.120 229)",
+          "oklch(61% 0.120 229)",
+          "oklch(72% 0.108 229)",
+          "oklch(84% 0.078 229)",
+          "oklch(95% 0.035 229)"
+        ]
+      },
+      "light-hazard-tropical-cyclone": {
+        "role": "tertiary",
+        "displayName": "Tropical cyclone (light ground)",
+        "canonical": "#de5098",
+        "tonalRamp": [
+          "oklch(15% 0.116 352)",
+          "oklch(26% 0.167 352)",
+          "oklch(38% 0.190 352)",
+          "oklch(49% 0.190 352)",
+          "oklch(61% 0.190 352)",
+          "oklch(72% 0.172 352)",
+          "oklch(84% 0.123 352)",
+          "oklch(95% 0.055 352)"
+        ]
+      },
+      "light-hazard-severe-storm": {
+        "role": "tertiary",
+        "displayName": "Severe storm (light ground)",
+        "canonical": "#9974d4",
+        "tonalRamp": [
+          "oklch(15% 0.088 300)",
+          "oklch(26% 0.126 300)",
+          "oklch(38% 0.144 300)",
+          "oklch(49% 0.144 300)",
+          "oklch(61% 0.144 300)",
+          "oklch(72% 0.130 300)",
+          "oklch(84% 0.093 300)",
+          "oklch(95% 0.042 300)"
+        ]
+      },
+      "light-hazard-wildfire": {
+        "role": "tertiary",
+        "displayName": "Wildfire (light ground)",
+        "canonical": "#d6681a",
+        "tonalRamp": [
+          "oklch(15% 0.098 49)",
+          "oklch(26% 0.141 49)",
+          "oklch(38% 0.160 49)",
+          "oklch(49% 0.160 49)",
+          "oklch(61% 0.160 49)",
+          "oklch(72% 0.145 49)",
+          "oklch(84% 0.104 49)",
+          "oklch(95% 0.047 49)"
+        ]
+      },
+      "light-hazard-heatwave": {
+        "role": "tertiary",
+        "displayName": "Heatwave (light ground)",
+        "canonical": "#998600",
+        "tonalRamp": [
+          "oklch(15% 0.078 99)",
+          "oklch(26% 0.113 99)",
+          "oklch(38% 0.128 99)",
+          "oklch(49% 0.128 99)",
+          "oklch(61% 0.128 99)",
+          "oklch(72% 0.116 99)",
+          "oklch(84% 0.083 99)",
+          "oklch(95% 0.037 99)"
+        ]
+      },
+      "light-hazard-coldwave": {
+        "role": "tertiary",
+        "displayName": "Coldwave (light ground)",
+        "canonical": "#43929b",
+        "tonalRamp": [
+          "oklch(15% 0.048 205)",
+          "oklch(26% 0.069 205)",
+          "oklch(38% 0.078 205)",
+          "oklch(49% 0.078 205)",
+          "oklch(61% 0.078 205)",
+          "oklch(72% 0.071 205)",
+          "oklch(84% 0.051 205)",
+          "oklch(95% 0.023 205)"
+        ]
+      },
+      "light-hazard-drought": {
+        "role": "tertiary",
+        "displayName": "Drought (light ground)",
+        "canonical": "#7d8d23",
+        "tonalRamp": [
+          "oklch(15% 0.078 118)",
+          "oklch(26% 0.112 118)",
+          "oklch(38% 0.128 118)",
+          "oklch(49% 0.128 118)",
+          "oklch(61% 0.128 118)",
+          "oklch(72% 0.116 118)",
+          "oklch(84% 0.083 118)",
+          "oklch(95% 0.037 118)"
+        ]
+      },
+      "light-hazard-landslide": {
+        "role": "tertiary",
+        "displayName": "Landslide (light ground)",
+        "canonical": "#ad7d4b",
+        "tonalRamp": [
+          "oklch(15% 0.055 66)",
+          "oklch(26% 0.078 66)",
+          "oklch(38% 0.089 66)",
+          "oklch(49% 0.089 66)",
+          "oklch(61% 0.089 66)",
+          "oklch(72% 0.081 66)",
+          "oklch(84% 0.058 66)",
+          "oklch(95% 0.026 66)"
+        ]
+      },
+      "light-hazard-volcano": {
+        "role": "tertiary",
+        "displayName": "Volcano (light ground)",
+        "canonical": "#ef4d4b",
+        "tonalRamp": [
+          "oklch(15% 0.121 25)",
+          "oklch(26% 0.175 25)",
+          "oklch(38% 0.199 25)",
+          "oklch(49% 0.199 25)",
+          "oklch(61% 0.199 25)",
+          "oklch(72% 0.180 25)",
+          "oklch(84% 0.129 25)",
+          "oklch(95% 0.058 25)"
+        ]
+      },
+      "light-hazard-earthquake": {
+        "role": "tertiary",
+        "displayName": "Earthquake (light ground)",
+        "canonical": "#009b5c",
+        "tonalRamp": [
+          "oklch(15% 0.089 156)",
+          "oklch(26% 0.128 156)",
+          "oklch(38% 0.146 156)",
+          "oklch(49% 0.146 156)",
+          "oklch(61% 0.146 156)",
+          "oklch(72% 0.132 156)",
+          "oklch(84% 0.095 156)",
+          "oklch(95% 0.042 156)"
+        ]
+      },
+      "light-hazard-tsunami": {
+        "role": "tertiary",
+        "displayName": "Tsunami (light ground)",
+        "canonical": "#009788",
+        "tonalRamp": [
+          "oklch(15% 0.066 183)",
+          "oklch(26% 0.095 183)",
+          "oklch(38% 0.108 183)",
+          "oklch(49% 0.108 183)",
+          "oklch(61% 0.108 183)",
+          "oklch(72% 0.098 183)",
+          "oklch(84% 0.070 183)",
+          "oklch(95% 0.031 183)"
+        ]
+      },
+      "light-hazard-other": {
+        "role": "tertiary",
+        "displayName": "Other (light ground)",
+        "canonical": "#818890",
+        "tonalRamp": [
+          "oklch(15% 0.009 252)",
+          "oklch(26% 0.013 252)",
+          "oklch(38% 0.015 252)",
+          "oklch(49% 0.015 252)",
+          "oklch(61% 0.015 252)",
+          "oklch(72% 0.013 252)",
+          "oklch(84% 0.009 252)",
+          "oklch(95% 0.004 252)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "The selected event's title in the panel."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "The app name in the column header."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Facts, summaries and document titles; 15 px base."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Filter group names, selected chips and tabs."
+      },
+      "hint": {
+        "displayName": "Hint",
+        "purpose": "Chip text, legend counts, hints, data age; muted."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Second lines, tab counts, forecast headers, credits; tabular digits."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "state-change",
+        "value": "150ms ease-out",
+        "purpose": "Chip background and border, chevron turn."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "transition: none",
+        "purpose": "All transitions off under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "720px",
+        "purpose": "At or below: top bar with Filters drawer, bottom sheet panel, 40 px touch targets."
+      }
+    ],
+    "themes": {
+      "selector": ":root[data-theme='light']",
+      "light": {
+        "ground": "#f2f3f0",
+        "surface": "#ffffff",
+        "raise": "#f0f0f0",
+        "rule": "#d6d6d6",
+        "text": "#1b1b1b",
+        "muted": "#5c5c5c",
+        "accent": "#2357c6",
+        "accent-ink": "#ffffff",
+        "alarm": "#c62828"
+      },
+      "note": "Saved per browser; applied by an inline script in index.html before the first paint."
+    }
+  },
+  "components": [
+    {
+      "name": "Hazard Symbol",
+      "kind": "custom",
+      "refersTo": "hazard-flood",
+      "description": "Active flood (filled), ended wildfire (hollow), active Red earthquake (two severity rings).",
+      "html": "<div class=\"ds-symbols\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10.5\" fill=\"#38c6f4\" stroke=\"#101317\" stroke-width=\"1\"/><path d=\"M6 9q1.5-1.6 3 0t3 0 3 0 3 0M6 12.5q1.5-1.6 3 0t3 0 3 0 3 0M6 16q1.5-1.6 3 0t3 0 3 0 3 0\" fill=\"none\" stroke=\"#101317\" stroke-width=\"1.9\" stroke-linecap=\"round\"/></svg><svg width=\"28\" height=\"28\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10.5\" fill=\"#101317\" stroke=\"#ff8a3d\" stroke-width=\"2\"/><path d=\"M12 5.5c1.4 2.6 4 4 4 7.3a4 4 0 0 1-8 0c0-1.8.9-3 1.9-3.8 0 1.4.7 2.3 1.4 2.3-.4-2 .1-4 .7-5.8z\" fill=\"#ff8a3d\"/></svg><svg width=\"37\" height=\"37\" viewBox=\"-4 -4 32 32\"><circle cx=\"12\" cy=\"12\" r=\"13.4\" fill=\"none\" stroke=\"#e8e8e8\" stroke-width=\"1.4\"/><circle cx=\"12\" cy=\"12\" r=\"15.4\" fill=\"none\" stroke=\"#e8e8e8\" stroke-width=\"1.4\"/><circle cx=\"12\" cy=\"12\" r=\"10.5\" fill=\"#3ddc97\" stroke=\"#101317\" stroke-width=\"1\"/><path d=\"M5 12h2.2l1.5-4 2 8 2-8 2 8 1.5-4H19\" fill=\"none\" stroke=\"#101317\" stroke-width=\"1.9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></div>",
+      "css": ":host { --ground:#0c0c0c; --surface:#171717; --raise:#212121; --rule:#2f2f2f; --text:#e8e8e8; --muted:#a8a8a8; --accent:#8ab4ff; --accent-ink:#0c1424; --alarm:#ff7a7a; --radius:6px; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size:15px; line-height:1.45; color:var(--text); } .ds-symbols { display:flex; gap:1rem; align-items:center; background: var(--surface); padding: 1rem; }"
+    },
+    {
+      "name": "Chips",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Radio chips for the window and minimum severity; selected takes the accent border and tint.",
+      "html": "<div class=\"ds-chips\"><label class=\"ds-chip\"><input type=\"radio\" name=\"d\"><span>1d</span></label><label class=\"ds-chip\"><input type=\"radio\" name=\"d\"><span>7d</span></label><label class=\"ds-chip\"><input type=\"radio\" name=\"d\" checked><span>14d</span></label><label class=\"ds-chip\"><input type=\"radio\" name=\"d\"><span>30d</span></label></div>",
+      "css": ":host { --ground:#0c0c0c; --surface:#171717; --raise:#212121; --rule:#2f2f2f; --text:#e8e8e8; --muted:#a8a8a8; --accent:#8ab4ff; --accent-ink:#0c1424; --alarm:#ff7a7a; --radius:6px; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size:15px; line-height:1.45; color:var(--text); } .ds-chips { display:grid; grid-template-columns:repeat(4,1fr); gap:0.25rem; width:220px; background: var(--surface); padding: 1rem; } .ds-chip { position:relative; } .ds-chip input { position:absolute; inset:0; opacity:0; margin:0; cursor:pointer; } .ds-chip span { display:block; padding:0.3rem 0; border:1px solid var(--rule); border-radius:var(--radius); text-align:center; font-size:0.87rem; font-variant-numeric:tabular-nums; transition:background-color 150ms ease-out, border-color 150ms ease-out; } .ds-chip:hover span { background:var(--raise); } .ds-chip input:checked + span { background:color-mix(in srgb, var(--accent) 22%, var(--surface)); border-color:var(--accent); font-weight:650; } .ds-chip input:focus-visible + span { outline:2px solid var(--accent); outline-offset:2px; }"
+    },
+    {
+      "name": "List Toggle",
+      "kind": "button",
+      "refersTo": "list-toggle",
+      "description": "Opens the accessible events list; accent text, chevron turns when open.",
+      "html": "<button class=\"ds-list-toggle\" aria-expanded=\"false\"><span>642 events · list</span><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3.5 6l4.5 4.5L12.5 6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></button>",
+      "css": ":host { --ground:#0c0c0c; --surface:#171717; --raise:#212121; --rule:#2f2f2f; --text:#e8e8e8; --muted:#a8a8a8; --accent:#8ab4ff; --accent-ink:#0c1424; --alarm:#ff7a7a; --radius:6px; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size:15px; line-height:1.45; color:var(--text); } .ds-list-toggle { display:flex; align-items:center; justify-content:space-between; width:228px; padding:0.45rem 0.6rem; border:1px solid var(--rule); border-radius:var(--radius); background:var(--raise); color:var(--accent); font:inherit; font-variant-numeric:tabular-nums; cursor:pointer; } .ds-list-toggle:hover { background:color-mix(in srgb, var(--accent) 12%, var(--raise)); } .ds-list-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:2px; } .ds-list-toggle svg { transition:transform 150ms ease-out; } .ds-list-toggle[aria-expanded='true'] svg { transform:rotate(180deg); }"
+    },
+    {
+      "name": "Icon Button",
+      "kind": "button",
+      "refersTo": "icon-button",
+      "description": "Theme switch, close and sheet toggle; muted until hovered.",
+      "html": "<button class=\"ds-icon-button\" aria-label=\"Close event\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3.5 3.5l9 9M12.5 3.5l-9 9\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\"/></svg></button>",
+      "css": ":host { --ground:#0c0c0c; --surface:#171717; --raise:#212121; --rule:#2f2f2f; --text:#e8e8e8; --muted:#a8a8a8; --accent:#8ab4ff; --accent-ink:#0c1424; --alarm:#ff7a7a; --radius:6px; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size:15px; line-height:1.45; color:var(--text); } .ds-icon-button { display:grid; place-items:center; width:2rem; height:2rem; border:0; border-radius:var(--radius); background:none; color:var(--muted); cursor:pointer; } .ds-icon-button:hover { background:var(--raise); color:var(--text); } .ds-icon-button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }"
+    },
+    {
+      "name": "Map Style Select",
+      "kind": "input",
+      "refersTo": "select",
+      "description": "Basemap chooser with a drawn chevron and the tile credit beneath.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-label\" for=\"ds-bm\">Map style</label><div class=\"ds-wrap\"><select id=\"ds-bm\" class=\"ds-select\"><option>Auto (Dark, follows the theme)</option><option>Positron</option></select><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3.5 6l4.5 4.5L12.5 6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></div><p class=\"ds-credit\">OpenFreeMap © OpenMapTiles Data from OpenStreetMap</p></div>",
+      "css": ":host { --ground:#0c0c0c; --surface:#171717; --raise:#212121; --rule:#2f2f2f; --text:#e8e8e8; --muted:#a8a8a8; --accent:#8ab4ff; --accent-ink:#0c1424; --alarm:#ff7a7a; --radius:6px; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size:15px; line-height:1.45; color:var(--text); } .ds-field { width:228px; background: var(--surface); padding: 1rem; } .ds-label { display:block; margin-bottom:0.45rem; font-weight:650; font-size:0.87rem; } .ds-wrap { position:relative; } .ds-wrap svg { position:absolute; right:0.6rem; top:50%; translate:0 -50%; pointer-events:none; color:var(--muted); } .ds-select { appearance:none; width:100%; padding:0.4rem 2rem 0.4rem 0.5rem; border:1px solid var(--rule); border-radius:var(--radius); background:var(--raise); color:var(--text); font:inherit; font-size:0.93rem; cursor:pointer; } .ds-select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; } .ds-credit { margin:0.35rem 0 0; font-size:0.8rem; color:var(--muted); }"
+    },
+    {
+      "name": "Panel Tabs",
+      "kind": "nav",
+      "refersTo": "tab",
+      "description": "Details, News, Posts, Weather; selected takes text colour and a 2 px accent underline.",
+      "html": "<div class=\"ds-tabs\" role=\"tablist\"><button role=\"tab\" aria-selected=\"true\">Details</button><button role=\"tab\" aria-selected=\"false\">News<span class=\"ds-count\">3</span></button><button role=\"tab\" aria-selected=\"false\">Posts</button><button role=\"tab\" aria-selected=\"false\">Weather</button></div>",
+      "css": ":host { --ground:#0c0c0c; --surface:#171717; --raise:#212121; --rule:#2f2f2f; --text:#e8e8e8; --muted:#a8a8a8; --accent:#8ab4ff; --accent-ink:#0c1424; --alarm:#ff7a7a; --radius:6px; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size:15px; line-height:1.45; color:var(--text); } .ds-tabs { display:flex; gap:0.25rem; border-bottom:1px solid var(--rule); background:var(--surface); padding:0 1rem; } .ds-tabs [role='tab'] { padding:0.4rem 0.5rem; margin-bottom:-1px; border:0; border-bottom:2px solid transparent; background:none; color:var(--muted); font:inherit; cursor:pointer; } .ds-tabs [role='tab']:hover { color:var(--text); } .ds-tabs [role='tab'][aria-selected='true'] { color:var(--text); font-weight:650; border-bottom-color:var(--accent); } .ds-tabs [role='tab']:focus-visible { outline:2px solid var(--accent); outline-offset:2px; } .ds-count { margin-left:0.3rem; color:var(--muted); font-size:0.8rem; font-variant-numeric:tabular-nums; }"
+    },
+    {
+      "name": "Event List Row",
+      "kind": "card",
+      "refersTo": "event-row",
+      "description": "Symbol, title and a muted meta line; the selected event takes an 18% accent tint.",
+      "html": "<ul class=\"ds-list\"><li><button><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10.5\" fill=\"#ff8a3d\" stroke=\"#101317\"/><path d=\"M12 5.5c1.4 2.6 4 4 4 7.3a4 4 0 0 1-8 0c0-1.8.9-3 1.9-3.8 0 1.4.7 2.3 1.4 2.3-.4-2 .1-4 .7-5.8z\" fill=\"#101317\"/></svg><span>Forest fire in Portugal</span><span class=\"ds-meta\">Wildfire · Green</span></button></li><li><button aria-current=\"true\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10.5\" fill=\"#38c6f4\" stroke=\"#101317\"/><path d=\"M6 9q1.5-1.6 3 0t3 0 3 0 3 0M6 12.5q1.5-1.6 3 0t3 0 3 0 3 0M6 16q1.5-1.6 3 0t3 0 3 0 3 0\" fill=\"none\" stroke=\"#101317\" stroke-width=\"1.9\" stroke-linecap=\"round\"/></svg><span>Flood in Bangladesh</span><span class=\"ds-meta\">Flood · Orange</span></button></li></ul>",
+      "css": ":host { --ground:#0c0c0c; --surface:#171717; --raise:#212121; --rule:#2f2f2f; --text:#e8e8e8; --muted:#a8a8a8; --accent:#8ab4ff; --accent-ink:#0c1424; --alarm:#ff7a7a; --radius:6px; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size:15px; line-height:1.45; color:var(--text); } .ds-list { list-style:none; margin:0; width:228px; background: var(--surface); padding: 1rem; } .ds-list button { display:grid; grid-template-columns:auto 1fr; column-gap:0.5rem; width:100%; padding:0.4rem 0.3rem; border:0; border-radius:var(--radius); background:none; color:var(--text); font:inherit; text-align:left; cursor:pointer; } .ds-list svg { margin-top:0.15rem; } .ds-list button:hover { background:var(--raise); } .ds-list button[aria-current] { background:color-mix(in srgb, var(--accent) 18%, var(--surface)); } .ds-list button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; } .ds-meta { grid-column:2; color:var(--muted); font-size:0.8rem; }"
+    },
+    {
+      "name": "Status Marks",
+      "kind": "chip",
+      "refersTo": "stamp",
+      "description": "The STALE stamp (only when the API flags the pipeline stale) and the EMS badge.",
+      "html": "<div class=\"ds-marks\"><p class=\"ds-stamp\">Stale · 3 of 28 runs missed</p><p class=\"ds-badge\">Copernicus EMS activation</p></div>",
+      "css": ":host { --ground:#0c0c0c; --surface:#171717; --raise:#212121; --rule:#2f2f2f; --text:#e8e8e8; --muted:#a8a8a8; --accent:#8ab4ff; --accent-ink:#0c1424; --alarm:#ff7a7a; --radius:6px; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size:15px; line-height:1.45; color:var(--text); } .ds-marks { display:grid; gap:0.5rem; justify-items:start; background: var(--surface); padding: 1rem; } .ds-marks p { margin:0; } .ds-stamp { padding:0.1rem 0.45rem; border:1.5px solid var(--alarm); border-radius:3px; color:var(--alarm); font-weight:650; font-size:0.8rem; letter-spacing:0.04em; text-transform:uppercase; } .ds-badge { padding:0.1rem 0.5rem; border:1px solid var(--muted); border-radius:3px; font-size:0.8rem; font-weight:650; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night-Desk Hazard Chart",
+    "overview": "A dark, quiet world map with every event drawn as a weather-chart symbol in its hazard colour. Shape and colour each tell the hazards apart on their own, so the map reads at a glance and still reads for someone who cannot tell two colours apart. Everything around the map is a plain, solid frame: a filter column on the left, an event panel on the right, hairline rules between them.\n\nDark is the default; a light theme swaps the same roles onto white surfaces over a warm grey map. The basemap can be chosen separately, and the map's symbols, clusters and selection ring follow the basemap's own ground (dark or light), not the page theme. Density is that of a tool, not a page: small type, tight rows, figures in fixed-width digits.\n\nThe frontend draws and never decides. Severity bands (hence the rings), staleness (the STALE stamp), country names and the hazard list all come from the API; the design only gives them a shape.",
+    "keyCharacteristics": [
+      "Solid surfaces only; no shadows, glow, gradients or see-through panels.",
+      "Twelve hazard symbols: a disc in the hazard colour with a dark chart glyph; hollow when the event has ended.",
+      "One accent, for what can be pressed or is selected.",
+      "One red, for the STALE stamp and errors.",
+      "System sans throughout, fixed-width digits for counts, dates and temperatures."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "The accent marks only what can be pressed or what is selected. It never decorates, never fills a panel, never colours a heading.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ground Decides Rule",
+        "body": "A symbol takes the colour set of what it sits on: on the map, the basemap's ground; in the column and panel, the page theme. A new basemap declares its ground, and that is all it needs.",
+        "section": "colors"
+      },
+      {
+        "name": "The Measured Palette Rule",
+        "body": "A new hazard colour joins only if it meets the same floors as the rest (dark: 6:1 and 13.3 CIEDE2000 from every other colour, accent and selection ring included; light: 3.2:1 on #f2f3f0 and white, 10.5 from every other). If it cannot, the hazard uses Other.",
+        "section": "colors"
+      },
+      {
+        "name": "The Alarm Is Data Rule",
+        "body": "Red appears only when the API says something is wrong: the STALE stamp from the pipeline's stale flag, and error text. Severity is never shown in red; it is shown as rings.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Figures Rule",
+        "body": "Every number a reader compares (counts, dates, data age, chips, facts, forecast, temperature) uses fixed-width digits.",
+        "section": "typography"
+      },
+      {
+        "name": "The Two Weights Rule",
+        "body": "Text is regular (400) or emphasised (650). There is no light weight and no third emphasis.",
+        "section": "typography"
+      },
+      {
+        "name": "The Solid Surfaces Rule",
+        "body": "Every panel, drawer, sheet, control and credit line is opaque. No shadows, no blur, no glow, no gradients.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do draw every event with its hazard symbol, filled when active and hollow when ended, with severity rings only from the API's Orange or Red label.",
+      "Do pick symbol, cluster and selection colours from the ground the symbol sits on: the basemap's ground on the map, the page theme elsewhere.",
+      "Do keep every text colour at WCAG AA or better in both themes; the built system's lowest is 5.08:1 (light) and 5.32:1 (dark), at desktop width and at 375 px.",
+      "Do keep the tile credit spelled out on a solid surface, and keep the map's bottom-right corner free.",
+      "Do use fixed-width digits for every count, date and measurement.",
+      "Do keep the frontend free of data logic: labels, staleness, country names and the hazard list arrive from the API and are shown as given."
+    ],
+    "donts": [
+      "Don't use shadows, blur, glow, gradients or see-through panels.",
+      "Don't use the accent for anything that cannot be pressed or is not selected.",
+      "Don't show severity in red, or derive it from a score in the frontend; red belongs to the STALE stamp and errors.",
+      "Don't add a hazard colour that misses the measured floors, or a hazard symbol without a glyph of its own.",
+      "Don't use emoji or font glyphs as icons; draw them as inline SVG in the text colour."
+    ]
+  }
+}

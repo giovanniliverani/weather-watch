@@ -1,11 +1,14 @@
 """The exporter's output carries exactly the contract's keys (golden example: tests/fixtures/events.geojson)."""
 
 import json
+from datetime import timedelta
 
+import pytest
 from typer.testing import CliRunner
 
 from eww import api, resolve
 from eww.cli import app
+from eww.clock import parse_iso, to_iso
 from tests.conftest import load_json
 from tests.test_ingest_resolve import ingest_fixtures
 
@@ -44,11 +47,49 @@ def test_export_matches_the_contract_keys(conn, data_dir):
         assert feature["properties"]["ems_activation"] is False
         assert feature["properties"]["precision"] in ("exact", "admin1")
         assert feature["properties"]["detail_url"].startswith("https://")
+        iso3, name = feature["properties"]["country_iso3"], feature["properties"]["country_name"]
+        assert (name is None) if iso3 is None else (isinstance(name, str) and name)
+    assert any(f["properties"]["country_name"] for f in points)
     for feature in polygons:
         assert set(feature["properties"]) == footprint_keys == set(api.FOOTPRINT_PROPERTIES)
         assert feature["properties"]["role"] == "footprint"
         assert feature["properties"]["event_id"] in {f["properties"]["event_id"] for f in points}
     json.dumps(collection)  # serialisable
+
+
+def test_severity_steps_follow_the_config_bands():
+    steps = api.severity_steps()
+    assert [s["label"] for s in steps] == ["Any", "Green", "Orange", "Red"]
+    assert [s["value"] for s in steps] == [0.0, 0.33, 0.66, 1.0]
+    orange = steps[2]["hint"]
+    assert "0.66" in orange and "Orange" in orange and "Red" in orange and "EMS activation" in orange
+    assert "EMS activation" not in steps[3]["hint"]  # the EMS floor (0.66) is below Red
+
+
+def test_severity_steps_change_with_config(monkeypatch):
+    monkeypatch.setattr(api.config, "GDACS_SEVERITY", {"Green": 0.2, "Orange": 0.5, "Red": 0.9})
+    monkeypatch.setattr(api.config, "EMS_SEVERITY_FLOOR", 0.9)
+    steps = api.severity_steps()
+    assert [s["value"] for s in steps] == [0.0, 0.2, 0.5, 0.9]
+    assert all("EMS activation" in s["hint"] for s in steps[1:])
+
+
+def test_severity_band_uses_the_severity_step_thresholds():
+    assert [api.severity_band(s) for s in (None, 0.0, 0.32, 0.33, 0.659, 0.66, 0.99, 1.0)] == [None, None, None, "Green", "Green", "Orange", "Orange", "Red"]
+
+
+def test_severity_band_agrees_with_the_severity_filter(conn, data_dir):
+    prepared(conn, data_dir)
+    rank = {None: 0, "Green": 1, "Orange": 2, "Red": 3}
+    everything = api.events_geojson(SINCE, conn=conn)["features"]
+    for index, step in enumerate(api.severity_steps()[1:], start=1):
+        kept = {f["id"] for f in api.events_geojson(SINCE, min_severity=step["value"], conn=conn)["features"]}
+        assert kept == {f["id"] for f in everything if rank[f["properties"]["severity_band"]] >= index}
+
+
+def test_country_name_comes_from_the_geonames_table():
+    assert api.countries.name_for("HRV") == "Croatia"
+    assert api.countries.name_for(None) is None and api.countries.name_for("XXX") is None
 
 
 def test_pin_count_equals_the_sql_count(conn, data_dir):
@@ -92,3 +133,35 @@ def test_cli_export_prints_json(tmp_path, data_dir):
     assert doctor.exit_code == 0, doctor.output
     assert "duplicate source_record keys (source_id, external_id, external_episode): 0" in doctor.stdout
     assert "unresolved source_record rows (event_id IS NULL): 0" in doctor.stdout
+
+
+def test_out_of_range_filters_raise(conn, data_dir):
+    prepared(conn, data_dir)
+    for kwargs in ({"limit": -1}, {"min_severity": float("nan")}, {"min_severity": 1.5}, {"min_severity": -0.1}, {"bbox": [0, 0, float("inf"), 1]}, {"bbox": [float("nan"), 0, 1, 1]}):
+        with pytest.raises(ValueError):
+            api.events_geojson(SINCE, conn=conn, **kwargs)
+    assert api.events_geojson(SINCE, min_severity=1.0, limit=None, conn=conn)["type"] == "FeatureCollection"
+
+
+@pytest.mark.parametrize(
+    ("hours_ago", "missed", "stale"),
+    [
+        (api.STATUS_RED_STALE_HOURS, api.STATUS_RED_MISSED_RUNS, False),
+        (api.STATUS_RED_STALE_HOURS + 0.01, 0, True),
+        (0, api.STATUS_RED_MISSED_RUNS + 1, True),
+        (None, 0, True),
+    ],
+)
+def test_pipeline_stale_follows_the_status_strip_rule(conn, monkeypatch, hours_ago, missed, stale):
+    now = parse_iso("2026-09-16T12:00:00Z")
+    last_run = None if hours_ago is None else to_iso(now - timedelta(hours=hours_ago))
+    monkeypatch.setattr(api.heartbeat, "summary", lambda conn, now: {"last_collector_run_at": last_run, "missed_runs_7d": missed, "expected_runs_7d": 56})
+    assert api.heartbeat_meta(conn=conn, now=now)["pipeline_stale"] is stale
+    assert api.events_geojson(SINCE, conn=conn, now=now)["meta"]["pipeline_stale"] is stale
+
+
+def test_cli_export_reports_bad_filters_without_a_traceback(tmp_path):
+    result = CliRunner().invoke(app, ["--db", str(tmp_path / "x.sqlite"), "export", "--limit", "-1"])
+    assert result.exit_code == 2
+    assert "limit must be 0" in result.output
+    assert "Traceback" not in result.output

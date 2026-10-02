@@ -1,0 +1,353 @@
+// The MapLibre map. Loaded lazily (React.lazy in App) so the page shell paints before the map library arrives.
+import {
+  GeolocateControl,
+  LngLatBounds,
+  Map as MapLibreMap,
+  Marker,
+  NavigationControl,
+  setWorkerUrl,
+  type GeoJSONSource,
+  type MapLayerMouseEvent,
+  type StyleSpecification,
+} from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
+// MapLibre looks for its worker beside its own file, which bundling moves; Vite bundles the worker and gives its address.
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
+import { useEffect, useRef, useState } from 'react'
+import { CLUSTER_PROPERTIES, clusterButton, hazardMix } from './clusters'
+import type { Basemap } from './config'
+import { BOX, drawSymbol, iconId, MARK_INK, type Ground, type SeverityMark } from './symbols'
+import type { EventFeature, FootprintFeature } from './types'
+import type { MapView as View } from './url'
+
+export interface FlyTarget {
+  lon: number
+  lat: number
+  /** Changes on every request, so asking twice for the same place still moves the map. */
+  nonce: number
+}
+
+interface Props {
+  basemap: Basemap
+  points: EventFeature[]
+  footprints: FootprintFeature[]
+  selectedId: string | null
+  initialView: View | null
+  flyTo: FlyTarget | null
+  onSelect: (eventId: string) => void
+  onMove: (view: View) => void
+}
+
+setWorkerUrl(workerUrl)
+
+/** A symbol's whole box on the map, severity rings included; the disc inside is 22 px. */
+const SYMBOL_PX = (22 * BOX) / 24
+/** Events closer than this many pixels join a cluster, up to CLUSTER_MAX_ZOOM; past it every event shows on its own. */
+const CLUSTER_RADIUS = 28
+const CLUSTER_MAX_ZOOM = 4
+/** Cluster discs, counts, the selection ring and footprints, per basemap ground (index.css --raise and --surface; keep in step). */
+const CHROME: Record<Ground, { ink: string; disc: string; accent: string }> = {
+  dark: { ink: MARK_INK.dark, disc: '#212121', accent: '#8ab4ff' },
+  light: { ink: MARK_INK.light, disc: '#ffffff', accent: '#2357c6' },
+}
+
+/** A basemap as something MapLibre can load: a style URL, or a one-layer style around raster tiles. */
+function styleFor(basemap: Basemap): string | StyleSpecification {
+  if (basemap.kind === 'style') return basemap.url
+  return {
+    version: 8,
+    sources: {
+      basemap: { type: 'raster', tiles: basemap.tiles, tileSize: basemap.tileSize, maxzoom: basemap.maxzoom, attribution: basemap.attribution },
+    },
+    layers: [{ id: 'basemap', type: 'raster', source: 'basemap' }],
+  }
+}
+
+/** A plain local style, used when the chosen basemap fails to load, so the events still draw. */
+function fallbackStyle(ground: Ground): StyleSpecification {
+  return {
+    version: 8,
+    sources: {},
+    layers: [{ id: 'background', type: 'background', paint: { 'background-color': ground === 'dark' ? '#0c0c0c' : '#f2f3f0' } }],
+  }
+}
+
+const collection = <F,>(features: F[]) => ({ type: 'FeatureCollection' as const, features })
+
+/** Add the event layers on top of whatever basemap style is loaded; runs again after every style switch. */
+function addLayers(map: MapLibreMap, ground: Ground) {
+  const { ink, accent } = CHROME[ground]
+  map.addSource('footprints', { type: 'geojson', data: collection([]) })
+  map.addLayer({
+    id: 'footprint-fill',
+    type: 'fill',
+    source: 'footprints',
+    filter: ['==', ['geometry-type'], 'Polygon'],
+    paint: { 'fill-color': ink, 'fill-opacity': 0.08 },
+  })
+  map.addLayer({
+    id: 'footprint-line',
+    type: 'line',
+    source: 'footprints',
+    paint: { 'line-color': ink, 'line-opacity': 0.55, 'line-width': 1, 'line-dasharray': [3, 2] },
+  })
+
+  // Clusters are drawn as HTML buttons (syncClusters below), not as a layer, so each has a name and takes the keyboard.
+  map.addSource('events', {
+    type: 'geojson',
+    data: collection([]),
+    cluster: true,
+    clusterMaxZoom: CLUSTER_MAX_ZOOM,
+    clusterRadius: CLUSTER_RADIUS,
+    clusterProperties: CLUSTER_PROPERTIES,
+  })
+  map.addLayer({
+    id: 'event-selected',
+    type: 'circle',
+    source: 'events',
+    filter: ['==', ['get', 'event_id'], ''],
+    // In the accent colour (the page's "selected" colour) and clear of the severity rings, so selection never reads
+    // as one more severity ring.
+    paint: { 'circle-opacity': 0, 'circle-radius': 19.5, 'circle-stroke-color': accent, 'circle-stroke-width': 3 },
+  })
+  map.addLayer({
+    id: 'event-points',
+    type: 'symbol',
+    source: 'events',
+    filter: ['!', ['has', 'point_count']],
+    layout: {
+      // Images are drawn on demand (the missing-image resolver below), so any hazard_type the API sends gets a symbol.
+      'icon-image': [
+        'concat',
+        `hz-${ground}-`,
+        ['get', 'hazard_type'],
+        '-',
+        ['case', ['==', ['get', 'status'], 'ended'], 'ended', 'active'],
+        '-',
+        // The severity mark follows the API's severity_band (symbols.ts severityMark), no thresholds here.
+        ['match', ['get', 'severity_band'], 'Red', 'red', 'Orange', 'orange', 'none'],
+      ],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      // Active events above ended ones, more severe above less severe.
+      'symbol-sort-key': ['+', ['coalesce', ['get', 'severity_score'], 0], ['case', ['==', ['get', 'status'], 'ended'], 0, 10]],
+    },
+  })
+}
+
+function fitToPoints(map: MapLibreMap, points: EventFeature[]) {
+  if (points.length === 0) return
+  const bounds = new LngLatBounds()
+  for (const point of points) bounds.extend(point.geometry.coordinates)
+  map.fitBounds(bounds, { padding: 48, maxZoom: 6, duration: 0 })
+}
+
+export default function MapView({ basemap, points, footprints, selectedId, initialView, flyTo, onSelect, onMove }: Props) {
+  const container = useRef<HTMLElement>(null)
+  const mapRef = useRef<MapLibreMap | null>(null)
+  const fitted = useRef(initialView !== null)
+  const shownBasemap = useRef(basemap.id)
+  const styleLoaded = useRef(false)
+  const usingFallback = useRef(false)
+  const [failedBasemap, setFailedBasemap] = useState<string | null>(null)
+  const latest = useRef({ basemap, points, footprints, selectedId, onSelect, onMove })
+  latest.current = { basemap, points, footprints, selectedId, onSelect, onMove }
+  // The cluster markers on the map now, by cluster id; emptied whenever the data or the ground changes.
+  const clusterMarkers = useRef(new Map<number, Marker>())
+
+  // Create the map once; the basemap, data, selection and moves flow in through the effects below.
+  useEffect(() => {
+    const map = new MapLibreMap({
+      container: container.current!,
+      style: styleFor(latest.current.basemap),
+      center: initialView ? [initialView.lon, initialView.lat] : [0, 20],
+      zoom: initialView?.zoom ?? 1.5,
+      // The tile credit stays spelled out, never folded into an info button.
+      attributionControl: { compact: false },
+      dragRotate: false,
+      // The canvas is MapLibre's own labelled region; this is what a screen reader announces for it.
+      locale: { 'Map.Title': 'Map of events. Every event is also in the events list.' },
+    })
+    map.touchZoomRotate.disableRotation()
+    // Controls sit top-right: the bottom-right corner is kept free for a later "add an event" control.
+    map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
+    map.addControl(new GeolocateControl({ positionOptions: { enableHighAccuracy: false }, trackUserLocation: false }), 'top-right')
+    mapRef.current = map
+
+    // Symbols are drawn the first time a feature needs one; MapLibre waits for this before giving up on the image.
+    map.setMissingStyleImageResolver((id) => {
+      const match = /^hz-(dark|light)-(.+)-(active|ended)-(none|orange|red)$/.exec(id)
+      if (!match || map.hasImage(id)) return
+      const [, ground, hazard, state, mark] = match as unknown as [string, Ground, string, string, SeverityMark]
+      const ended = state === 'ended'
+      const ratio = window.devicePixelRatio || 1
+      map.addImage(iconId(hazard, ended, mark, ground), drawSymbol(hazard, ended, mark, ground, SYMBOL_PX, ratio), { pixelRatio: ratio })
+    })
+
+    // A basemap style that cannot load (tile host down, offline, blocked by a proxy) never fires 'style.load', so the
+    // pins would never be added: fall back to a plain local background and say so.
+    map.on('error', () => {
+      if (styleLoaded.current || usingFallback.current) return
+      usingFallback.current = true
+      setFailedBasemap(latest.current.basemap.name)
+      map.setStyle(fallbackStyle(latest.current.basemap.ground), { diff: false })
+    })
+
+    // Every style load (the first, and each basemap switch) wipes added layers, so they are put back here.
+    map.on('style.load', () => {
+      styleLoaded.current = true
+      clearClusters()
+      const { basemap: b, points: p, footprints: f, selectedId: s } = latest.current
+      addLayers(map, b.ground)
+      ;(map.getSource('events') as GeoJSONSource).setData(collection(p))
+      ;(map.getSource('footprints') as GeoJSONSource).setData(collection(f))
+      map.setFilter('event-selected', ['==', ['get', 'event_id'], s ?? ''])
+      if (!fitted.current && p.length) {
+        fitToPoints(map, p)
+        fitted.current = true
+      }
+    })
+
+    map.on('click', 'event-points', (e: MapLayerMouseEvent) => {
+      const id = e.features?.[0]?.properties?.event_id
+      if (typeof id === 'string') latest.current.onSelect(id)
+    })
+    map.on('mouseenter', 'event-points', () => (map.getCanvas().style.cursor = 'pointer'))
+    map.on('mouseleave', 'event-points', () => (map.getCanvas().style.cursor = ''))
+    // MapLibre's HTML-cluster pattern: after each frame, put a marker on every cluster in view and drop the rest.
+    map.on('render', () => {
+      if (map.getSource('events') && map.isSourceLoaded('events')) syncClusters(map)
+    })
+    map.on('moveend', () => {
+      const center = map.getCenter()
+      latest.current.onMove({ zoom: map.getZoom(), lat: center.lat, lon: center.lng })
+    })
+
+    return () => {
+      map.remove()
+      mapRef.current = null
+    }
+    // The map is created once; initialView only seeds it.
+  }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || shownBasemap.current === basemap.id) return
+    shownBasemap.current = basemap.id
+    loadBasemap(basemap)
+  }, [basemap])
+
+  // Before the first style load the events source does not exist yet; 'style.load' then uses the latest values.
+  useEffect(() => {
+    const map = mapRef.current
+    const source = map?.getSource('events') as GeoJSONSource | undefined
+    if (!map || !source) return
+    clearClusters()
+    source.setData(collection(points))
+    if (!fitted.current && points.length) {
+      fitToPoints(map, points)
+      fitted.current = true
+    }
+  }, [points])
+
+  useEffect(() => {
+    ;(mapRef.current?.getSource('footprints') as GeoJSONSource | undefined)?.setData(collection(footprints))
+  }, [footprints])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (map?.getLayer('event-selected')) map.setFilter('event-selected', ['==', ['get', 'event_id'], selectedId ?? ''])
+  }, [selectedId])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !flyTo) return
+    map.easeTo({ center: [flyTo.lon, flyTo.lat], zoom: Math.max(map.getZoom(), 7) })
+  }, [flyTo])
+
+  /** Take a cluster off the map; a focused one hands focus to the map, so the next Tab does not restart at the page top. */
+  function removeCluster(marker: Marker) {
+    if (marker.getElement().contains(document.activeElement)) mapRef.current?.getCanvas().focus()
+    marker.remove()
+  }
+
+  function clearClusters() {
+    for (const marker of clusterMarkers.current.values()) removeCluster(marker)
+    clusterMarkers.current.clear()
+  }
+
+  /** Reading order on screen: rows of 40 px top to bottom, left to right in a row. Panning and zooming keep it. */
+  function readingKey(map: MapLibreMap, at: [number, number]): [number, number] {
+    // A marker draws on the world copy nearest the centre, so measure it there too.
+    const lng = at[0] + 360 * Math.round((map.getCenter().lng - at[0]) / 360)
+    const { x, y } = map.project([lng, at[1]])
+    return [Math.round(y / 40), x]
+  }
+
+  function syncClusters(map: MapLibreMap) {
+    const ground = latest.current.basemap.ground
+    const bounds = map.getBounds()
+    const inView = new Set<number>()
+    for (const feature of map.querySourceFeatures('events', { filter: ['has', 'point_count'] })) {
+      const id = feature.properties.cluster_id as number
+      if (inView.has(id) || feature.geometry.type !== 'Point') continue
+      const at = feature.geometry.coordinates as [number, number]
+      // Across the 180th meridian the view's bounds run past 180 while cluster longitudes do not, so try each world copy.
+      if (![0, 360, -360].some((shift) => bounds.contains([at[0] + shift, at[1]]))) continue
+      inView.add(id)
+      if (clusterMarkers.current.has(id)) continue
+      const total = feature.properties.point_count as number
+      const button = clusterButton(total, String(feature.properties.point_count_abbreviated), hazardMix(feature.properties), ground, CHROME[ground])
+      button.addEventListener('click', (event) => {
+        event.stopPropagation()
+        ;(map.getSource('events') as GeoJSONSource)
+          .getClusterExpansionZoom(id)
+          .then((zoom) => map.easeTo({ center: at, zoom }))
+          .catch(() => {
+            // The clusters were rebuilt (new data) between the click and the answer; the next click works.
+          })
+      })
+      const marker = new Marker({ element: button }).setLngLat(at).addTo(map)
+      // Keyboard order follows the screen: put the new button before the first cluster that reads after it.
+      // The buttons already on the map are in that order, so the earliest one on the page among those after it is the spot.
+      const [row, x] = readingKey(map, at)
+      const next = [...clusterMarkers.current.values()]
+        .filter((other) => {
+          const [otherRow, otherX] = readingKey(map, other.getLngLat().toArray() as [number, number])
+          return otherRow > row || (otherRow === row && otherX > x)
+        })
+        .map((other) => other.getElement())
+        .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))[0]
+      next?.before(button)
+      clusterMarkers.current.set(id, marker)
+    }
+    for (const [id, marker] of clusterMarkers.current) {
+      if (inView.has(id)) continue
+      removeCluster(marker)
+      clusterMarkers.current.delete(id)
+    }
+  }
+
+  /** Load the chosen basemap again after it failed (the tile host may be back). */
+  function loadBasemap(next: Basemap) {
+    styleLoaded.current = false
+    usingFallback.current = false
+    setFailedBasemap(null)
+    mapRef.current?.setStyle(styleFor(next), { diff: false })
+  }
+  const retryBasemap = () => loadBasemap(latest.current.basemap)
+
+  return (
+    <div className="map-area">
+      <main ref={container} className="map" />
+      {failedBasemap ? (
+        <p className="map-note" role="status">
+          The {failedBasemap} map style did not load, so the events sit on a plain background.{' '}
+          <button type="button" className="link" onClick={retryBasemap}>
+            Try again
+          </button>
+        </p>
+      ) : null}
+    </div>
+  )
+}

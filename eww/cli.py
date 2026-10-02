@@ -253,6 +253,16 @@ def resolve_cmd(
     )
 
 
+def export_collection(conn, since: str, until: str | None, hazard: list[str] | None, min_severity: float, status: list[str] | None, footprints: bool, limit: int) -> dict:
+    """Map `eww export`'s options onto events_geojson(); `eww report frontend` reuses it on a read-only connection."""
+    return api.events_geojson(since, until, hazard or None, min_severity, status or None, None, footprints, limit, conn=conn)
+
+
+def pin_count(collection: dict) -> int:
+    """Count the Point features, as `eww export --count` prints."""
+    return sum(1 for f in collection["features"] if f["geometry"]["type"] == "Point")
+
+
 @app.command()
 def export(
     since: str = typer.Option(config.DEFAULT_EXPORT_SINCE, "--since", help="ISO 8601 or relative, e.g. 30d."),
@@ -267,11 +277,12 @@ def export(
 ) -> None:
     """Print the GeoJSON FeatureCollection defined in eww/api.py."""
     conn = _open()
-    collection = api.events_geojson(
-        since, until, hazard or None, min_severity, status or None, None, footprints, limit, conn=conn
-    )
+    try:
+        collection = export_collection(conn, since, until, hazard, min_severity, status, footprints, limit)
+    except (ValueError, OverflowError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
     if count:
-        typer.echo(sum(1 for f in collection["features"] if f["geometry"]["type"] == "Point"))
+        typer.echo(pin_count(collection))
         return
     text = json.dumps(collection, ensure_ascii=True, separators=(",", ":"))
     if out is not None:
@@ -280,6 +291,24 @@ def export(
         sys.stdout.write(text + "\n")
         sys.stdout.flush()
     log.info("export features=%d since=%s until=%s", len(collection["features"]), collection["meta"]["filters_applied"]["since"], collection["meta"]["filters_applied"]["until"])
+
+
+@app.command()
+def serve(
+    host: str = typer.Option(config.SERVE_HOST, "--host", help="IPv4 address or name to bind (IPv6 literals fail the Host check); the API has no authentication, keep it local."),
+    port: int = typer.Option(config.SERVE_PORT, "--port"),
+) -> None:
+    """Serve the read-only HTTP API the React frontend reads (GET /events.geojson, /health, ...)."""
+    import uvicorn
+
+    from eww.serve import create_app
+
+    try:
+        api_app = create_app(_state["db"], host)
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    uvicorn.run(api_app, host=host, port=port)
 
 
 # ----------------------------------------------------------------------------- doctor
@@ -654,6 +683,32 @@ def report_social(
         typer.echo(f"weather probe: {probe['elapsed_s']:.3f}s, {probe['rows']} days, {probe['temperature_c']} °C ({'PASS' if result['weather_passed'] else 'FAIL'})")
     else:
         typer.echo(f"weather probe failed: {probe['error']}")
+
+
+@report_app.command("frontend")
+def report_frontend(
+    map_count_default: Optional[int] = typer.Option(None, "--map-count-default", help="Pins you counted on the React map in the default view."),
+    map_count_flood: Optional[int] = typer.Option(None, "--map-count-flood", help="Pins you counted with flood, 7 days, severity >= 0.66."),
+    build: bool = typer.Option(False, "--build", help="Run `npm run build` in web/ first and time it."),
+    network: bool = typer.Option(True, "--network/--no-network", help="Time one live /forecast call (Open-Meteo)."),
+    base: str = typer.Option(config.FRONTEND_DIFF_BASE, "--base", help="Git ref the Python changes are compared with."),
+    out: Optional[Path] = typer.Option(None, "--out", help="Default: docs/m7.md (the milestone record)."),
+) -> None:
+    """Write the M7 frontend report: build and bundle size, pin parity, one sample pin, the audit, the Python scope."""
+    from eww import frontend_report
+
+    try:
+        db.require_current_schema(_state["db"])  # read-only like eww serve: the report never migrates
+        conn = db.connect_readonly(_state["db"])
+        path, result = frontend_report.write_frontend_report(
+            conn, _state["db"], out, map_counts=(map_count_default, map_count_flood), build=build, network=network, base=base
+        )
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"written {path}")
+    for line in frontend_report.summary_lines(result):
+        typer.echo(f"  {line}")
 
 
 @report_app.command("identity")

@@ -5,6 +5,7 @@
     "last_collector_run_at": "2026-09-16T15:10:12Z",
     "missed_runs_7d": 0,
     "expected_runs_7d": 56,
+    "pipeline_stale": false,
     "generated_at": "2026-09-16T15:12:00Z",
     "filters_applied": {
       "since": "2026-08-17T15:12:00Z",
@@ -32,7 +33,9 @@
         "last_observed_at": "2026-09-12T13:04:10Z",
         "severity_score": 0.33,
         "severity_label": "Green",
+        "severity_band": "Green",
         "country_iso3": "HRV",
+        "country_name": "Croatia",
         "precision": "admin1",
         "glide_number": null,
         "source_ids": ["gdacs"],
