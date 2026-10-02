@@ -21,7 +21,7 @@ One pin per real event, deduplicated across three authoritative feeds (GDACS, NA
 ## Operating Context
 
 - A Python pipeline (`eww sync`) keeps a local SQLite database current; a GitHub Actions collector keeps collecting while the laptop is off.
-- The React map in `web/` reads only the local read-only HTTP API (`uv run eww serve`, http://127.0.0.1:8000). Its contract is docs/architecture.md section 2.
+- The React map in `web/` reads only the local read-only HTTP API (`uv run eww serve`, http://127.0.0.1:8710). Its contract is docs/architecture.md section 2.
 - Accepting or rejecting merge proposals stays in the Streamlit Review tab; the React map has no write actions.
 - Typical data: a few hundred to about a thousand events in a 14-day window, most of them wildfires and most Green; a handful Orange or Red. Few events have news or posts attached yet.
 

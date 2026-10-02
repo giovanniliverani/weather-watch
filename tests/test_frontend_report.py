@@ -35,7 +35,7 @@ def ready(conn, data_dir, tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(ready) -> TestClient:
-    return TestClient(create_app(ready), base_url="http://127.0.0.1:8000")
+    return TestClient(create_app(ready), base_url="http://127.0.0.1:8710")
 
 
 def fake_dist(web_dir, index_scripts: bool = True):
@@ -303,7 +303,7 @@ def test_a_crash_inside_the_api_is_a_fail_row_not_a_crash(ready, tmp_path, monke
 
     monkeypatch.setattr(api, "events_geojson", broken_in_the_server)
     monkeypatch.setattr(frontend_report, "export_count", lambda conn, view: 0)
-    client = TestClient(create_app(ready), raise_server_exceptions=False, base_url="http://127.0.0.1:8000")
+    client = TestClient(create_app(ready), raise_server_exceptions=False, base_url="http://127.0.0.1:8710")
     pin = frontend_report.sample_pin(client)
     assert pin["event"] is None and frontend_report._pin_rows(pin)[0][1] == "GET /events.geojson answered HTTP 500"
     with closing(db.connect_readonly(ready)) as conn:

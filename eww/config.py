@@ -61,13 +61,13 @@ SNAPSHOT_FORMAT = "eww.snapshot/1"  # the envelope written by collectors and rep
 # --------------------------------------------------------------------------- `eww serve` (M7)
 # The API has no authentication, so it binds to this machine only; never 0.0.0.0 by default.
 SERVE_HOST = "127.0.0.1"
-SERVE_PORT = 8000
-SERVE_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # the Vite dev server in web/
+SERVE_PORT = 8710  # with the map on 5710: uncommon ports, so other local projects' dev servers never clash
+SERVE_CORS_ORIGINS = ["http://localhost:5710", "http://127.0.0.1:5710"]  # the Vite dev server in web/
 SERVE_ALLOWED_HOSTS = ["127.0.0.1", "localhost"]  # Host headers answered; others get 400, which stops DNS rebinding
 
 # --------------------------------------------------------------------------- `eww report frontend` (M7 exit criteria)
 WEB_DIR = PROJECT_ROOT / "web"  # the React app; `npm run build` writes web/dist
-WEB_DEV_URL = "http://localhost:5173/"
+WEB_DEV_URL = "http://localhost:5710/"
 FRONTEND_FIRST_LOAD_JS_KB = 600  # gzipped JavaScript on first load, map library included
 FRONTEND_FORECAST_S = 3.0  # the Weather tab's forecast must arrive within this
 FRONTEND_BUILD_TIMEOUT_S = 600.0  # `eww report frontend --build` gives up on npm after this

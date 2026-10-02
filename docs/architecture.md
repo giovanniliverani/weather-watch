@@ -834,7 +834,7 @@ Sizes are relative: M0 small, M1 medium, M2 medium, M3 large, M4 medium, M5 medi
 **Exit criteria.**
 1. A phone on mobile data opens the app URL, logs in, and shows the same pin count as the laptop within 30 minutes of `eww publish`.
 2. An incognito browser without login cannot see the app.
-3. `curl "http://localhost:8000/events.geojson?since=7d&hazard=flood"` returns a FeatureCollection identical to `eww export --since 7d --hazard flood`.
+3. `curl "http://localhost:8710/events.geojson?since=7d&hazard=flood"` returns a FeatureCollection identical to `eww export --since 7d --hazard flood`.
 4. R2 usage stays under 1 GB and the hosted app starts in under 60 seconds.
 
 **Risk retired.** A hosting path exists that does not require a rewrite.
@@ -1398,7 +1398,7 @@ DEFINITION OF DONE
 1. A phone on mobile data opens the app URL, logs in, and shows the same pin count as the laptop within
    30 minutes of `eww publish`.
 2. An incognito browser without login cannot see the app.
-3. curl "http://localhost:8000/events.geojson?since=7d&hazard=flood" returns a FeatureCollection
+3. curl "http://localhost:8710/events.geojson?since=7d&hazard=flood" returns a FeatureCollection
    identical to `eww export --since 7d --hazard flood`.
 4. R2 usage < 1 GB; the hosted app starts in under 60 seconds.
 ```
@@ -1427,7 +1427,7 @@ measures it (`eww report frontend`), in the shape of docs/m2.md — and update d
 eww/config.py has milestone_doc(n).
 
 TASK
-1. `eww serve`: FastAPI + uvicorn on 127.0.0.1:8000 (the API has no authentication). It opens SQLite
+1. `eww serve`: FastAPI + uvicorn on 127.0.0.1:8710 (the API has no authentication). It opens SQLite
    read-only and never migrates: a database whose schema is behind the code is refused at start. GET
    /events.geojson maps the query parameters (since, until, hazard repeated, min_severity, status
    repeated, bbox as min_lon,min_lat,max_lon,max_lat, include_footprints, limit) onto events_geojson();

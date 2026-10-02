@@ -1,10 +1,10 @@
 // Viewer settings. Every value a later decision may change lives here once; hazard colours live in symbols.ts.
 
 /** Where `uv run eww serve` listens. Override with VITE_API_BASE_URL in web/.env.local. */
-export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8710'
 
 /** The page addresses `eww serve` answers: eww/config.py SERVE_CORS_ORIGINS, kept equal by tests/test_web_config.py. */
-export const API_PAGE_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173']
+export const API_PAGE_ORIGINS = ['http://localhost:5710', 'http://127.0.0.1:5710']
 
 /** A basemap the map can draw. `ground` picks the symbol colours that stay readable on it. */
 export type Basemap =

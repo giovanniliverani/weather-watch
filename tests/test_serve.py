@@ -22,14 +22,14 @@ from eww.serve import create_app
 from tests.test_api import prepared
 
 NOW = "2026-09-16T15:10:00Z"  # the fixtures' collection time, so relative windows select rows
-DEV_ORIGIN = "http://localhost:5173"
+DEV_ORIGIN = "http://localhost:5710"
 
 
 @pytest.fixture
 def client(conn, data_dir, tmp_path, monkeypatch) -> TestClient:
     prepared(conn, data_dir)
     monkeypatch.setattr(api, "now_utc", lambda: parse_iso(NOW))
-    return TestClient(create_app(tmp_path / "test.sqlite"), base_url="http://127.0.0.1:8000")
+    return TestClient(create_app(tmp_path / "test.sqlite"), base_url="http://127.0.0.1:8710")
 
 
 def without_generated_at(collection: dict) -> dict:
@@ -145,7 +145,7 @@ def test_serve_never_writes_the_database(conn, data_dir, tmp_path, monkeypatch):
     path = tmp_path / "test.sqlite"
     versions, mtime = _versions(path), path.stat().st_mtime_ns
     monkeypatch.setattr(api, "now_utc", lambda: parse_iso(NOW))
-    client = TestClient(create_app(path), base_url="http://127.0.0.1:8000")
+    client = TestClient(create_app(path), base_url="http://127.0.0.1:8710")
     event_id = client.get("/events.geojson", params={"since": "36500d"}).json()["features"][0]["properties"]["event_id"]
     for route in ("/health", "/attributions", "/hazards", f"/events/{event_id}/documents"):
         assert client.get(route).status_code == 200
@@ -255,7 +255,7 @@ def test_only_get_is_served(client):
 
 
 def test_foreign_host_header_is_refused(client):
-    assert client.get("/health", headers={"Host": "localhost:8000"}).status_code == 200
+    assert client.get("/health", headers={"Host": "localhost:8710"}).status_code == 200
     assert client.get("/health", headers={"Host": "evil.example.com"}).status_code == 400
 
 
@@ -336,8 +336,8 @@ def test_forecast_malformed_reply_is_502(client, monkeypatch):
         ({"Sec-Fetch-Site": "cross-site", "Origin": "https://example.com"}, 403),
         ({"Sec-Fetch-Site": "cross-site"}, 403),
         ({"Sec-Fetch-Site": "cross-site", "Origin": DEV_ORIGIN}, 200),
-        ({"Sec-Fetch-Site": "cross-site", "Origin": "http://127.0.0.1:5173"}, 200),
-        ({"Sec-Fetch-Site": "same-site", "Origin": "http://localhost:5173"}, 200),
+        ({"Sec-Fetch-Site": "cross-site", "Origin": "http://127.0.0.1:5710"}, 200),
+        ({"Sec-Fetch-Site": "same-site", "Origin": "http://localhost:5710"}, 200),
         ({"Sec-Fetch-Site": "same-origin"}, 200),
         ({"Sec-Fetch-Site": "none"}, 200),
         ({}, 200),

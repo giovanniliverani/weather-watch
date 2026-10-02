@@ -18,18 +18,18 @@ Once, from this folder: `npm install` (on the corporate network, if it fails wit
 Then two terminals:
 
 ```bash
-uv run eww serve     # repository root: the API on http://127.0.0.1:8000
-npm run dev          # web/: the map on http://localhost:5173
+uv run eww serve     # repository root: the API on http://127.0.0.1:8710
+npm run dev          # web/: the map on http://localhost:5710
 ```
 
-The API answers browser calls only from http://localhost:5173 and http://127.0.0.1:5173 (`SERVE_CORS_ORIGINS` in `eww/config.py`; `API_PAGE_ORIGINS` in `src/config.ts` repeats it for the error message, and a test keeps the two equal), so keep the dev server there. The same goes for the production build: try it with `npm run preview`, which serves `dist/` on port 5173; opened from any other address, the map cannot reach the API.
+The API answers browser calls only from http://localhost:5710 and http://127.0.0.1:5710 (`SERVE_CORS_ORIGINS` in `eww/config.py`; `API_PAGE_ORIGINS` in `src/config.ts` repeats it for the error message, and a test keeps the two equal), so keep the dev server there. The same goes for the production build: try it with `npm run preview`, which serves `dist/` on port 5710; opened from any other address, the map cannot reach the API.
 
 | Command | What it does |
 |---|---|
 | `npm run dev` | Development server with live reload |
 | `npm run typecheck` | Type-check only |
 | `npm run build` | Type-check, then write the production files to `dist/` |
-| `npm run preview` | Serve `dist/` on port 5173 to try the production build |
+| `npm run preview` | Serve `dist/` on port 5710 to try the production build |
 
 The API address is `API_BASE_URL` in `src/config.ts` (override with `VITE_API_BASE_URL` in `web/.env.local`). To offer another map style, add one entry to `BASEMAPS` there: a vector style URL, or raster tiles (for example satellite) with their credit line.
 
