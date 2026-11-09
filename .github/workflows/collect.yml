@@ -49,11 +49,12 @@ jobs:
         run: uv sync --frozen --no-dev
 
       # Exit code 1 only when every source failed; the run log is written either way.
+      # --no-sync: use the environment above; a re-check would fetch the laptop-only model wheels.
       - name: Collect
         id: collect
         run: |
           set -o pipefail
-          uv run eww collect --all-spine --out data-branch | tee collect.log
+          uv run --no-sync eww collect --all-spine --out data-branch | tee collect.log
           summary=$(awk '/^collect summary:/ { sub(/^collect summary: /, ""); print }' collect.log)
           echo "summary=${summary}" >> "$GITHUB_OUTPUT"
 
